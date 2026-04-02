@@ -13,3 +13,5 @@ Dockerfile
 RICK_AI_CONTEXT
 External files
 .vscode
+.dockerignore
+.gitignore
