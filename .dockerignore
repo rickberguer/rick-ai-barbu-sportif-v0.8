@@ -10,3 +10,6 @@ scripts
 !.env.example
 Dockerfile
 .dockerignore
+RICK_AI_CONTEXT
+External files
+.vscode

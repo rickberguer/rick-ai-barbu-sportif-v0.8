@@ -9,3 +9,5 @@ node_modules/
 .env*.local
 .DS_Store
 RICK_AI_CONTEXT.md
+External files/
+.vscode/
