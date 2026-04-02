@@ -11,3 +11,5 @@ node_modules/
 RICK_AI_CONTEXT.md
 External files/
 .vscode/
+.gitignore
+.dockerignore
