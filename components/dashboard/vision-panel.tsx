@@ -376,34 +376,30 @@ function CameraCard({ branchId, branchName }: { branchId: string, branchName: st
                 <LiveVisionCamera cameraName={streamCameraId} />
               </div>
               
-              {/* AR Metrics HUD */}
-              <div className="absolute bottom-4 left-4 right-4 flex justify-between items-end pointer-events-none z-30">
-                <div className="flex flex-col gap-1.5 animate-in slide-in-from-left-4 duration-500">
-                  <div className="bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full flex items-center gap-2 border border-white/20 shadow-lg">
-                    <span className="size-2 rounded-full bg-green-400 shadow-[0_0_8px_#4ade80]" />
-                    <span className="text-[10px] font-bold text-white uppercase tracking-tighter drop-shadow-md">
-                      {t("panel.vision.barbers")}: {data.summary.total_barbers}
-                    </span>
-                  </div>
-                  <div className="bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full flex items-center gap-2 border border-white/20 shadow-lg">
-                    <span className="size-2 rounded-full bg-blue-400 shadow-[0_0_8px_#60a5fa]" />
-                    <span className="text-[10px] font-bold text-white uppercase tracking-tighter drop-shadow-md">
-                      {t("panel.vision.clients")}: {data.summary.total_clients}
-                    </span>
-                  </div>
+              {/* AR Metrics HUD — supérpuesto, esquina superior izquierda */}
+              <div className="absolute top-3 left-3 flex flex-row gap-1.5 pointer-events-none z-30 flex-wrap">
+                {/* Barberos */}
+                <div className="bg-black/60 backdrop-blur-md px-2 py-1 rounded-full flex items-center gap-1.5 border border-white/20 shadow-lg">
+                  <span className="size-1.5 rounded-full bg-green-400 shadow-[0_0_6px_#4ade80] flex-shrink-0" />
+                  <span className="text-[9px] font-bold text-white uppercase tracking-tighter">
+                    {t("panel.vision.barbers")}: {data.summary.total_barbers}
+                  </span>
                 </div>
-              
-                <div className="bg-black/60 backdrop-blur-md px-4 py-2 rounded-2xl flex flex-col items-center justify-center border border-white/20 shadow-xl animate-in slide-in-from-right-4 duration-500">
-                  <span className="text-[10px] text-white/90 font-bold uppercase tracking-widest leading-none drop-shadow-sm">{t("panel.vision.occupancy")}</span>
-                  <span className="text-xl font-black text-white leading-tight drop-shadow-lg">
+                {/* Clientes */}
+                <div className="bg-black/60 backdrop-blur-md px-2 py-1 rounded-full flex items-center gap-1.5 border border-white/20 shadow-lg">
+                  <span className="size-1.5 rounded-full bg-blue-400 shadow-[0_0_6px_#60a5fa] flex-shrink-0" />
+                  <span className="text-[9px] font-bold text-white uppercase tracking-tighter">
+                    {t("panel.vision.clients")}: {data.summary.total_clients}
+                  </span>
+                </div>
+                {/* Ocupación — badge compacto */}
+                <div className="bg-black/60 backdrop-blur-md px-2 py-1 rounded-full flex items-center gap-1.5 border border-white/20 shadow-lg">
+                  <span className="text-[9px] font-bold text-white/80 uppercase tracking-tighter">
+                    {t("panel.vision.occupancy")}:
+                  </span>
+                  <span className="text-[9px] font-black text-white">
                     {Math.round((data.summary.occupied_chairs / (data.chairs.length || 1)) * 100)}%
                   </span>
-                  <div className="w-16 h-1 bg-white/20 rounded-full mt-1.5 overflow-hidden">
-                    <div 
-                      className="h-full bg-primary shadow-[0_0_10px_rgba(var(--primary),0.8)] transition-all duration-1000" 
-                      style={{ width: `${(data.summary.occupied_chairs / (data.chairs.length || 1)) * 100}%` }}
-                    />
-                  </div>
                 </div>
               </div>
             </div>

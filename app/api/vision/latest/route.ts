@@ -26,7 +26,7 @@ export async function POST(request: Request) {
         box: det.box || [0, 0, 0, 0],
         confidence: det.confidence || 1.0
       }));
-    } 
+    }
     // 2. If payload comes from legacy format (using 'data' bucket with parallel arrays)
     else if (data && typeof data === 'object') {
       const bboxes = data.bboxes || [];
@@ -66,13 +66,13 @@ export async function GET(request: Request) {
 
     const db = getAdminDb();
     const docRef = await db.collection("vision_detections").doc(camera).get();
-    
+
     let cameraData = { detections: [], timestamp: 0 };
     if (docRef.exists) {
       cameraData = docRef.data() as any;
     }
-    
-    return NextResponse.json(cameraData, { 
+
+    return NextResponse.json(cameraData, {
       status: 200,
       headers: {
         'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
