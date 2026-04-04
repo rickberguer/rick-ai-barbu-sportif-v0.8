@@ -96,15 +96,22 @@ export function VisionPanel() {
     sessionActiveRef.current = true
   }, [getActiveCameraIds])
 
-  // On mount → start session; on unmount → stop
+  // On mount → start session + heartbeat; on unmount → stop all
   useEffect(() => {
     startSession(selectedBranchId, gridSize, activeCameraIndex)
 
-    // Stop GPU on tab close / navigation away
+    // Heartbeat cada 20s — mantiene la sesión viva en Florence2.
+    // Si el browser se cierra sin avisar, el watchdog (45s timeout) para las cámaras.
+    const heartbeatInterval = setInterval(() => {
+      fetch('/api/vision/heartbeat', { method: 'POST' }).catch(() => {/* silencioso */})
+    }, 20_000)
+
+    // Stop GPU on tab close / navigation away (sendBeacon es más confiable que fetch en beforeunload)
     window.addEventListener('beforeunload', stopVisionSessionBeacon)
 
     return () => {
       // Panel unmounted (user navigated to another tab in the dashboard)
+      clearInterval(heartbeatInterval)
       updateVisionSession([], 'stop')
       sessionActiveRef.current = false
       window.removeEventListener('beforeunload', stopVisionSessionBeacon)

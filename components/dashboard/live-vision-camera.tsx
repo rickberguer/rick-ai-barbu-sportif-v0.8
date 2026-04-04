@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 
@@ -77,7 +77,9 @@ export default function LiveVisionCamera({ cameraName, className }: LiveVisionCa
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const trackedRef = useRef<Map<string, TrackedDetection>>(new Map());
+  const pcRef = useRef<RTCPeerConnection | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [streamError, setStreamError] = useState<string | null>(null);
   const { t } = useI18n();
 
   // Función para obtener la etiqueta traducida desde el canonical key
@@ -89,6 +91,98 @@ export default function LiveVisionCamera({ cameraName, className }: LiveVisionCa
       ? translated
       : canonical.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
   };
+
+  // ============================================================
+  // WebRTC — Conexión directa con go2rtc via SDP signaling
+  // ============================================================
+  const startWebRTC = useCallback(async () => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    // Cerrar conexión anterior si existe
+    if (pcRef.current) {
+      pcRef.current.close();
+      pcRef.current = null;
+    }
+
+    setIsStreaming(false);
+    setStreamError(null);
+
+    try {
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      });
+      pcRef.current = pc;
+
+      // Solicitar pista de video (y audio opcional)
+      pc.addTransceiver("video", { direction: "recvonly" });
+      pc.addTransceiver("audio", { direction: "recvonly" });
+
+      // Cuando llegue el stream de video, conectarlo al elemento <video>
+      pc.ontrack = (event) => {
+        if (event.track.kind === "video" && video) {
+          // Usar MediaStream del primer video track
+          if (!video.srcObject) {
+            video.srcObject = event.streams[0] ?? new MediaStream([event.track]);
+          }
+        }
+      };
+
+      pc.onconnectionstatechange = () => {
+        const state = pc.connectionState;
+        if (state === "connected") {
+          setIsStreaming(true);
+          setStreamError(null);
+        } else if (state === "failed" || state === "disconnected") {
+          setIsStreaming(false);
+          // Auto-reconectar tras 3s si falló
+          if (state === "failed") {
+            setStreamError("Reconectando...");
+            setTimeout(startWebRTC, 3000);
+          }
+        }
+      };
+
+      // Crear oferta SDP
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      // Esperar que ICE gathering termine (o timeout de 2s)
+      await new Promise<void>((resolve) => {
+        if (pc.iceGatheringState === "complete") { resolve(); return; }
+        const check = () => {
+          if (pc.iceGatheringState === "complete") {
+            pc.removeEventListener("icegatheringstatechange", check);
+            resolve();
+          }
+        };
+        pc.addEventListener("icegatheringstatechange", check);
+        setTimeout(resolve, 2000); // timeout fallback
+      });
+
+      // Enviar oferta SDP a go2rtc via nuestro proxy (que añade CF headers)
+      const res = await fetch(`/api/vision/webrtc?camera=${cameraName}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/sdp" },
+        body: pc.localDescription?.sdp,
+      });
+
+      if (!res.ok) {
+        throw new Error(`Signaling error: ${res.status} ${res.statusText}`);
+      }
+
+      const answerSdp = await res.text();
+      await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
+
+    } catch (err: any) {
+      console.error(`[LiveVisionCamera] WebRTC error [${cameraName}]:`, err);
+      setStreamError(err.message || "Error de conexión");
+      setIsStreaming(false);
+      // Reintentar tras 5s
+      setTimeout(startWebRTC, 5000);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cameraName]);
 
   // ============================================================
   // MOTOR AR — SSE + Interpolación + Canvas 60fps
@@ -112,14 +206,10 @@ export default function LiveVisionCamera({ cameraName, className }: LiveVisionCa
     // =====================================================
     // LOOP DE DIBUJO — rAF 60fps con lerp de posición
     // =====================================================
-    const LERP_SPEED   = 0.20;  // Ligeramente más suave para movimiento fluido
-    // FADE timing calibrado para el ciclo REAL observado en los logs:
-    // • ndp_stations puede llegar a 5s de ciclo total (Cloudflare latency)
-    // • FADE_DELAY = 6.5s → las cajas aguantan visibles incluso en el peor caso (5s + 1.5s buffer)
-    // • FADE_TOTAL = 1.5s → desaparecen rápido cuando el objeto realmente sale de escena
-    const FADE_DELAY   = 6500;  // ms — debe superar el worst-case del ciclo OD (~5s)
-    const FADE_TOTAL   = 1500;  // ms hasta desaparecer completamente
-    const APPEAR_TIME  = 300;   // ms de animación de aparición
+    const LERP_SPEED   = 0.20;
+    const FADE_DELAY   = 6500;
+    const FADE_TOTAL   = 1500;
+    const APPEAR_TIME  = 300;
 
     let animationId: number;
 
@@ -161,11 +251,9 @@ export default function LiveVisionCamera({ cameraName, className }: LiveVisionCa
         const bornAge = now - tracked.born;
         let opacity   = 0.9;
 
-        // Animación de aparición suave
         if (bornAge < APPEAR_TIME) {
           opacity *= bornAge / APPEAR_TIME;
         }
-        // Fade-out cuando la IA deja de detectarlo
         if (age > FADE_DELAY) {
           opacity *= Math.max(0, 1 - (age - FADE_DELAY) / FADE_TOTAL);
         }
@@ -175,17 +263,14 @@ export default function LiveVisionCamera({ cameraName, className }: LiveVisionCa
         const palette = LABEL_PALETTE[tracked.label] ?? DEFAULT_PALETTE;
         const rgb = palette.rgb;
 
-        // Sombra + glow
         ctx.shadowColor  = `rgba(${rgb}, ${opacity * 0.6})`;
         ctx.shadowBlur   = 8;
 
-        // Relleno semitransparente
         ctx.fillStyle   = `rgba(${rgb}, ${opacity * 0.12})`;
         ctx.beginPath();
         ctx.roundRect(rx1, ry1, w, h, 5);
         ctx.fill();
 
-        // Borde
         ctx.strokeStyle  = `rgba(${rgb}, ${opacity * 0.95})`;
         ctx.lineWidth    = 2;
         ctx.lineJoin     = "round";
@@ -204,20 +289,17 @@ export default function LiveVisionCamera({ cameraName, className }: LiveVisionCa
         const labelY  = ry1 > labelH + 4 ? ry1 - labelH - 2 : ry1 + 2;
         const labelX  = Math.min(rx1, canvasW - labelW - 2);
 
-        // Fondo de la etiqueta
         ctx.fillStyle = `rgba(0, 0, 0, ${opacity * 0.75})`;
         ctx.beginPath();
         ctx.roundRect(labelX, labelY, labelW, labelH, 4);
         ctx.fill();
 
-        // Borde de la etiqueta (mismo color)
         ctx.strokeStyle = `rgba(${rgb}, ${opacity * 0.6})`;
         ctx.lineWidth   = 1;
         ctx.beginPath();
         ctx.roundRect(labelX, labelY, labelW, labelH, 4);
         ctx.stroke();
 
-        // Texto
         ctx.fillStyle   = `rgba(255, 255, 255, ${opacity})`;
         ctx.textBaseline = "middle";
         ctx.fillText(displayLabel, labelX + 5, labelY + labelH / 2);
@@ -247,11 +329,9 @@ export default function LiveVisionCamera({ cameraName, className }: LiveVisionCa
 
           const existing = trackedRef.current.get(id);
           if (existing) {
-            // Actualizar targetBox → el lerp lo animará suavemente
             existing.targetBox  = det.box;
             existing.lastSeen   = now;
           } else {
-            // Nueva detección: inicializar displayBox == targetBox (sin salto)
             trackedRef.current.set(id, {
               id,
               label:      det.label,
@@ -269,13 +349,21 @@ export default function LiveVisionCamera({ cameraName, className }: LiveVisionCa
 
     eventSource.onerror = () => setIsStreaming(false);
 
+    // Iniciar WebRTC al montar
+    startWebRTC();
+
     return () => {
       cancelAnimationFrame(animationId);
       eventSource.close();
       resizeObserver.disconnect();
+      // Cerrar conexión WebRTC al desmontar
+      if (pcRef.current) {
+        pcRef.current.close();
+        pcRef.current = null;
+      }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cameraName]);
+  }, [cameraName, startWebRTC]);
 
   return (
     <div className={cn("relative group transition-all duration-500", className)}>
@@ -288,11 +376,13 @@ export default function LiveVisionCamera({ cameraName, className }: LiveVisionCa
               "size-2 rounded-full animate-pulse",
               isStreaming
                 ? "bg-emerald-500 shadow-[0_0_8px_#10b981]"
+                : streamError
+                ? "bg-yellow-500"
                 : "bg-yellow-500"
             )}
           />
           <span className="text-[10px] font-black uppercase tracking-widest text-white/90">
-            {isStreaming ? t("vision.status.live") : t("vision.status.connecting")}
+            {isStreaming ? t("vision.status.live") : streamError ?? t("vision.status.connecting")}
           </span>
         </div>
 
@@ -314,17 +404,19 @@ export default function LiveVisionCamera({ cameraName, className }: LiveVisionCa
           ))}
         </div>
 
-        {/* ── Contenedor Video + Canvas ─────────────────────────────────── */}
+        {/* ── Contenedor Video WebRTC + Canvas AR ─────────────────────────── */}
         <div className="relative w-full h-full flex items-center justify-center">
           <video
             ref={videoRef}
-            src={`/api/vision/proxy?camera=${cameraName}`}
             autoPlay
             muted
             playsInline
             className="max-w-full max-h-[80vh] w-auto h-auto object-contain block mx-auto"
             onLoadedMetadata={() => setIsStreaming(true)}
-            onError={(e) => console.error("[LiveVisionCamera] MP4 Stream Error:", e)}
+            onError={(e) => {
+              console.error("[LiveVisionCamera] Video element error:", e);
+              setStreamError("Error de video");
+            }}
           />
 
           {/* Canvas de IA — superpuesto exactamente encima del video */}
