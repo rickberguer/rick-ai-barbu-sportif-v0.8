@@ -24,7 +24,8 @@ export async function POST(request: Request) {
       finalDetections = detections.map((det: any) => ({
         label: det.label || 'Objeto',
         box: det.box || [0, 0, 0, 0],
-        confidence: det.confidence || 1.0
+        confidence: det.confidence || 1.0,
+        track_id: det.track_id !== undefined ? det.track_id : -1
       }));
     }
     // 2. If payload comes from legacy format (using 'data' bucket with parallel arrays)

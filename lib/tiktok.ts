@@ -94,7 +94,7 @@ export async function getTikTokCampaignStats(startDate: string, endDate: string)
     advertiser_id: advertiserId,
     report_type: 'BASIC',
     data_level: 'AUCTION_CAMPAIGN', // 'AUCTION_CAMPAIGN_DAILY' si quieres segmento por día
-    dimensions: JSON.stringify(["campaign_id", "campaign_name"]),
+    dimensions: JSON.stringify(["campaign_id"]),
     metrics: JSON.stringify(["spend", "clicks", "impressions", "conversion"]),
     start_date: startDate,
     end_date: endDate,

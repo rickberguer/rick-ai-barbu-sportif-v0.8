@@ -53,3 +53,15 @@ export async function createScheduledTask(
     throw error;
   }
 }
+
+export async function deleteScheduledTask(taskId: string) {
+  const name = `projects/${PROJECT_ID}/locations/${LOCATION}/jobs/rick-auto-${taskId}`;
+  try {
+    await scheduler.deleteJob({ name });
+    console.log(`[Scheduler] Tarea eliminada: ${name}`);
+    return { status: "deleted", name };
+  } catch (error: any) {
+    console.error(`[Scheduler] Error eliminando tarea ${taskId}:`, error.message);
+    throw error;
+  }
+}

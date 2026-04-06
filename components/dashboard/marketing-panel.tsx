@@ -241,7 +241,7 @@ export function MarketingPanel() {
   )
 
   return (
-    <div className="flex h-full flex-col p-4 sm:p-6 md:pr-24 pb-48 md:pb-10 overflow-y-auto overflow-x-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="flex h-full flex-col p-4 sm:p-6 md:pr-24 pb-48 md:pb-10 overflow-y-auto overflow-x-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 panel-stagger">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8 shrink-0">
         <div>
           <div className="flex items-center gap-3">

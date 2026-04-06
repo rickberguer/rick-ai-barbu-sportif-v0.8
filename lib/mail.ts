@@ -14,7 +14,7 @@ const getGmailClient = async (targetEmail: string) => {
   // Usamos google.auth.JWT, el único método que soporta Domain-Wide Delegation (subject)
   const authClient = new google.auth.JWT({
     email: credentials.client_email,
-    key: credentials.private_key,
+    key: credentials.private_key ? credentials.private_key.replace(/\\n/g, '\n') : '',
     scopes: [
       'https://www.googleapis.com/auth/gmail.readonly',
       'https://www.googleapis.com/auth/gmail.compose'
@@ -67,8 +67,9 @@ export async function readRecentEmails(targetEmail: string, maxResults: number =
 
     return emailDetails;
   } catch (error: any) {
-    console.error(`Error leyendo correos de ${targetEmail}:`, error.message);
-    throw new Error(`No se pudo acceder a la bandeja de ${targetEmail}. Verifica la Delegación de Dominio.`);
+    const errorDetail = error.response?.data?.error_description || error.message;
+    console.error(`[Gmail API Error] Fallo al acceder a ${targetEmail}:`, errorDetail);
+    throw new Error(`Rick no pudo acceder al buzón de ${targetEmail}. Detalles: ${errorDetail}. Asegúrate de que la Delegación de Dominio esté activa para este correo.`);
   }
 }
 

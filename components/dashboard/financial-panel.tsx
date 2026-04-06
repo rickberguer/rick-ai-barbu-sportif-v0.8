@@ -393,7 +393,7 @@ export function FinancialPanel() {
   const availableBranches = data ? Object.keys(data as object).filter(k => k !== "periods" && k !== "Todos") : [];
 
   return (
-    <div className="flex h-full flex-col p-4 md:p-8 md:pr-24 pb-32 md:pb-6 animate-in fade-in slide-in-from-bottom-4 duration-500 overflow-y-auto">
+    <div className="flex h-full flex-col p-4 md:p-8 md:pr-24 pb-32 md:pb-6 animate-in fade-in slide-in-from-bottom-4 duration-500 overflow-y-auto panel-stagger">
       <div className="flex items-center justify-between mb-4">
         <div>
           <div className="flex items-center gap-2">

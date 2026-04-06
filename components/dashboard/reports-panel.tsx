@@ -163,7 +163,7 @@ export function ReportsPanel() {
   }
 
   return (
-    <div className="flex h-full flex-col p-4 sm:p-6 md:pr-24 pb-32 md:pb-6 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="flex h-full flex-col p-4 sm:p-6 md:pr-24 pb-32 md:pb-6 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 panel-stagger">
       {/* Header */}
       <div className="flex items-center justify-between mb-8 shrink-0">
         <div>

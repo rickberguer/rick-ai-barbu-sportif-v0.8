@@ -16,7 +16,7 @@ const DATA_STORE_IDS = [
 ];
 
 // Actualizado a la versión estable
-const GEMINI_MODEL = "gemini-3-pro";
+const GEMINI_MODEL = "gemini-3.1-pro-preview";
 
 async function getAccessToken(): Promise<string> {
   try {

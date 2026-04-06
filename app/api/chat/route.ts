@@ -125,11 +125,12 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
 
-    const { message, attachments, history, modelSelected = "rapido", locale = "es", panelContext, chatId } = body as {
+    const { message, attachments, history, modelSelected = "rapido", thinkingLevel = "low", locale = "es", panelContext, chatId } = body as {
       message: string;
       attachments?: Attachment[];
       history?: ChatHistoryMessage[];
       modelSelected?: string;
+      thinkingLevel?: "low" | "high";
       locale?: "fr" | "en" | "es";
       panelContext?: string;
       chatId?: string;
@@ -146,7 +147,7 @@ export async function POST(req: NextRequest) {
     let GEMINI_MODEL = "gemini-3-flash-preview";
     // Motor por defecto (Rápido)
     if (modelSelected === "pro") {
-      GEMINI_MODEL = "gemini-3-pro-preview";
+      GEMINI_MODEL = "gemini-3.1-pro-preview";
       // Motor Pro
     }
 
@@ -234,12 +235,15 @@ Eres Rick, el Director Operativo Virtual (vCOO) de la cadena Barbu Sportif. Tu m
 2. MARKETING: Todo el gasto de pauta (Google/Meta) reside en BigQuery.
 
 [INGENIERÍA SQL (ESTRÍCTO)]
-1. FECHAS (ANTI-CRASH): 
-   - Mindbody (\`sale_datetime\`, \`date_time\`) son DATETIME en UTC. NUNCA uses TIMESTAMP() sobre ellas.
-   - Filtro OBLIGATORIO: \`WHERE DATE(DATETIME(columna, 'America/Toronto')) = 'YYYY-MM-DD'\`.
+1. FECHAS (ANTI-CRASH):
+   - Mindbody (\`sale_datetime\`, \`date_time\`) son tipo DATETIME almacenado en UTC.
+   - Filtro OBLIGATORIO para esas columnas: \`WHERE DATE(TIMESTAMP(columna), 'America/Toronto') = 'YYYY-MM-DD'\`.
+   - Explicación: TIMESTAMP(datetime_col) convierte DATETIME→TIMESTAMP asumiendo UTC, luego DATE(..., timezone) extrae la fecha local. NUNCA uses DATETIME(col, timezone) porque esa firma solo acepta TIMESTAMP como primer argumento.
    - Marketing/Inventory: Estas tablas ya tienen columnas DATE puras (ej. \`date\`, \`inventory_date\`). Filtra directo: \`WHERE date = 'YYYY-MM-DD'\`.
-2. IDENTIFICACIÓN DE CLIENTES: Usa esta fórmula para evitar duplicados históricos: 
-   \`COUNT(DISTINCT COALESCE(NULLIF(client_catalog.email, ''), NULLIF(client_catalog.phone, ''), historial.client_id))\`.
+2. IDENTIFICACIÓN DE CLIENTES: 
+   - El historial (sales_history/appointment_history) SOLO tiene 'client_id' y 'phone' (si existe). El 'email' vive en 'client_catalog'.
+   - Para joins: \`FROM sales_history s LEFT JOIN client_catalog c ON s.client_id = c.client_id\`.
+   - Fórmula de identidad unificada: \`COALESCE(NULLIF(c.email, ''), NULLIF(c.phone, ''), CAST(s.client_id AS STRING))\`.
    - Tasa de Retención: (Clientes Recurrentes / Clientes Totales) calculados con esta lógica de identidad.
 3. EFICIENCIA DE MEMORIA: Prohibido 'SELECT *'. Usa agregaciones (SUM, COUNT). Agrupa por Mes/Sucursal, NUNCA por IDs transaccionales o timestamps granulares.
 4. VENTAS: Clasifica con \`WHERE is_product = true\` para productos y \`false\` para servicios.
@@ -249,7 +253,7 @@ Eres Rick, el Director Operativo Virtual (vCOO) de la cadena Barbu Sportif. Tu m
 2. INVENTARIO (\`inventory_system\`): 
    - \`daily_stock\`: (inventory_date, store, product_name, quantity, unit_price, total_line_value).
    - Lógica: Para ver el stock real, usa \`ROW_NUMBER() OVER (PARTITION BY store, product_name ORDER BY inventory_date DESC)\` y filtra \`WHERE rn = 1\`.
-3. MARKETING: \`google_ads.CampaignBasicStats_1029563228\`, \`facebook_ads_analytics.campaign_daily_stats\`, \`tiktok_ads_analytics.campaign_daily_stats\`.
+3. MARKETING: \`Google_ads.CampaignBasicStats_1029563228\`, \`facebook_ads_analytics.campaign_daily_stats\`, \`tiktok_ads_analytics.campaign_daily_stats\`.
 
 [VISUALIZACIÓN Y REPORTES]
 1. MERMAID (REGLA DE 0): El eje Y debe empezar en 0: \`y-axis "Etiqueta" 0 --> [Max]\`. No uses símbolos ($), comas ni % en los números de Mermaid.
@@ -260,7 +264,7 @@ Eres Rick, el Director Operativo Virtual (vCOO) de la cadena Barbu Sportif. Tu m
 [HABILIDADES ESTRATÉGICAS]
 - ANÁLISIS vCOO: Después de cada dato, ofrece contexto, tendencias y 2-3 pasos accionables.
 - GUARDIÁN DE MARCA: Evalúa diseños (Figma/Imágenes). Debe ser "Deportivo, Varonil, Moderno". Sin medias tintas: si es genérico o 'spa', pide corrección inmediata.
-- CREATIVIDAD GPU: Genera arte/video publicitario en inglés técnico (Cinematic, 8k, RED camera). Para Reels/TikTok usa '9:16' OBLIGATORIAMENTE.
+- CREATIVIDAD GPU: Genera arte/video publicitario en inglés técnico (Cinematic, 8k, RED camera). Para Reels/TikTok usa 'vertical' (resolución 1080x1920) OBLIGATORIAMENTE.
 - RICK VISION: Usa 'mirar_sucursal' para conteo de personas y sillas en vivo antes de proponer cambios de turno o promociones.
 
 [PROGRAMANDO EL FUTURO (AUTOMATIZACIÓN)]
@@ -547,19 +551,30 @@ Eres Rick, el Director Operativo Virtual (vCOO) de la cadena Barbu Sportif. Tu m
           // ⏰ CLOUD SCHEDULER (AUTOMATIZACIÓN RECURRENTE)
           {
             name: "create_scheduled_automation",
-            description: "Programa una tarea recurrente en la nube usando lenguaje natural.",
+            description: "Programa una tarea recurrente o recordatorio en la nube. USA 'delete_after: true' en el payload si es un recordatorio de una sola vez.",
             parameters: {
               type: "OBJECT",
               properties: {
-                task_id: { type: "STRING", description: "ID único: 'security_nightly', 'barber_weekly', etc." },
+                task_id: { type: "STRING", description: "ID único: 'reminder_tp_mirabel', 'report_weekly', etc." },
                 cron_expression: { type: "STRING", description: "Formato cron: '0 8 * * *' (diario 8am), '0 0 * * 1' (lunes medianoche)." },
-                task_payload: { 
-                  type: "OBJECT", 
-                  description: "Objeto flexible con 'action' (analyze_vision, send_alert, summarize_sales), 'target' (sucursal/teléfono), etc." 
+                task_payload: {
+                  type: "OBJECT",
+                  description: "Objeto con 'action' (send_sms, summarize_sales), 'target' (sucursal/teléfono), 'message' (texto), y opcionalmente 'delete_after' (boolean)."
                 },
-                user_description: { type: "STRING", description: "Descripción entendible de la tarea." },
+                user_description: { type: "STRING", description: "Descripción de la tarea." },
               },
               required: ["task_id", "cron_expression", "task_payload", "user_description"]
+            }
+          },
+          {
+            name: "delete_scheduled_automation",
+            description: "Elimina una tarea programada existente de Cloud Scheduler usando su task_id.",
+            parameters: {
+              type: "OBJECT",
+              properties: {
+                task_id: { type: "STRING", description: "El ID de la tarea a eliminar (ej. 'reminder_tp_mirabel')." }
+              },
+              required: ["task_id"]
             }
           }
         ],
@@ -662,6 +677,9 @@ Eres Rick, el Director Operativo Virtual (vCOO) de la cadena Barbu Sportif. Tu m
               generationConfig: {
                 temperature: 0.8,
                 maxOutputTokens: 65535,
+                ...(GEMINI_MODEL === "gemini-3.1-pro-preview"
+                  ? { thinkingConfig: { thinkingBudget: thinkingLevel === "high" ? 8192 : 1024 } }
+                  : {}),
               },
               // 🛡️ BLINDAJE CORPORATIVO: Apaga los falsos positivos de la web
               safetySettings: [
@@ -712,7 +730,7 @@ Eres Rick, el Director Operativo Virtual (vCOO) de la cadena Barbu Sportif. Tu m
             const decoder = new TextDecoder("utf-8");
             let doneReading = false;
             let bufferVertex = "";
-            
+
             const functionCallParts: any[] = [];
 
             while (!doneReading) {
@@ -767,7 +785,7 @@ Eres Rick, el Director Operativo Virtual (vCOO) de la cadena Barbu Sportif. Tu m
             if (functionCallParts.length > 0) {
               currentContents.push({ role: "model", parts: functionCallParts });
 
-              
+
               const userResponseParts: any[] = [];
 
               for (const callPart of functionCallParts) {
@@ -777,7 +795,7 @@ Eres Rick, el Director Operativo Virtual (vCOO) de la cadena Barbu Sportif. Tu m
                 sendProgress(`progress.tool:${callName}`);
                 console.log(`[Function Call Streaming Secuencial]: ${callName}`, callArgs);
 
-                
+
                 let functionResult: any = {};
 
                 try {
@@ -869,8 +887,8 @@ Eres Rick, el Director Operativo Virtual (vCOO) de la cadena Barbu Sportif. Tu m
                       });
                       if (visionRes.ok) {
                         const data = await visionRes.json();
-                        functionResult = { 
-                          status: "success", 
+                        functionResult = {
+                          status: "success",
                           reporte_visual: `En la sucursal de ${callArgs.branch_name} he detectado visualmente a ${data.summary.total_barbers} barberos y ${data.summary.total_clients} clientes. Hay ${data.summary.occupied_chairs} sillas ocupadas.`,
                           data_cruda: data
                         };
@@ -960,10 +978,15 @@ Eres Rick, el Director Operativo Virtual (vCOO) de la cadena Barbu Sportif. Tu m
                       callArgs.task_payload,
                       callArgs.user_description
                     );
-                    functionResult = { 
-                      status: "success", 
-                      message: `La tarea '${callArgs.user_description}' con ID '${callArgs.task_id}' ha sido programada con éxito.` 
+                    functionResult = {
+                      status: "success",
+                      message: `La tarea '${callArgs.user_description}' con ID '${callArgs.task_id}' ha sido programada con éxito.`
                     };
+                  }
+                  else if (callName === "delete_scheduled_automation") {
+                    const { deleteScheduledTask } = await import("@/lib/scheduler");
+                    await deleteScheduledTask(callArgs.task_id);
+                    functionResult = { status: "success", message: `Tarea '${callArgs.task_id}' eliminada.` };
                   }
 
                 } catch (e: any) {

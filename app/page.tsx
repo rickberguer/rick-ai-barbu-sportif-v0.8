@@ -37,6 +37,8 @@ import {
 
 import { useSoundSetting } from "@/components/settings-menu"
 import { Minimize2, MessageSquare, X, Maximize2, Sparkles } from "lucide-react"
+import { ChatSearchModal } from "@/components/chat-search-modal"
+import { VoiceCallOverlay } from "@/components/voice-call-overlay"
 
 export default function GeminiPage() {
   const { t, locale } = useI18n()
@@ -57,15 +59,46 @@ export default function GeminiPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [activeTool, setActiveTool] = useState<ToolMode>(null)
   const [modelSelected, setModelSelected] = useState<"rapido" | "pro">("rapido")
+  const [thinkingLevel, setThinkingLevel] = useState<"low" | "high">("low")
   const [showFileExplorer, setShowFileExplorer] = useState(false)
   const [allLocalFiles, setAllLocalFiles] = useState<LocalFile[]>([])
   const [explorerFolders, setExplorerFolders] = useState<ExplorerFolder[]>([])
+  const [voiceCallOpen, setVoiceCallOpen] = useState(false)
+  const [voiceToken, setVoiceToken] = useState("")
   const [isChatMinimized, setIsChatMinimized] = useState(false)
   const [panelNotifications, setPanelNotifications] = useState<Record<string, boolean>>({})
+  const [searchOpen, setSearchOpen] = useState(false)
 
   const clearNotification = useCallback((panelId: string) => {
     setPanelNotifications(prev => ({ ...prev, [panelId]: false }));
   }, []);
+
+  // ⌘K / Ctrl+K global search shortcut
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault()
+        setSearchOpen(prev => !prev)
+      }
+    }
+    window.addEventListener("keydown", handler)
+    return () => window.removeEventListener("keydown", handler)
+  }, [])
+
+  // Regenerate: re-sends the last user message before the given assistant message
+  const handleRegenerate = useCallback((messageId: string) => {
+    if (!activeChatId) return
+    const msgs = conversations[activeChatId] ?? []
+    const idx = msgs.findIndex(m => m.id === messageId)
+    if (idx <= 0) return
+    // Walk backwards from the AI message to find the nearest user message
+    for (let i = idx - 1; i >= 0; i--) {
+      if (msgs[i].role === "user") {
+        handleSendMessage(msgs[i].content, msgs[i].attachments, activeTool, activePanel)
+        return
+      }
+    }
+  }, [activeChatId, conversations, activeTool, activePanel]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-minimize chat when switching to a dashboard, and restore when back to chat panel
   useEffect(() => {
@@ -518,7 +551,7 @@ const handleStopGeneration = useCallback(() => {
         const response = await fetch("/api/chat", {
           method: "POST",
           headers: authHeaders,
-          body: JSON.stringify({ ...apiPayload, modelSelected, locale: locale.split("-")[0] }),
+          body: JSON.stringify({ ...apiPayload, modelSelected, thinkingLevel, locale: locale.split("-")[0] }),
           signal: abortControllerRef.current.signal,
         })
 
@@ -770,11 +803,11 @@ const handleStopGeneration = useCallback(() => {
                   animation: "shimmer 4s linear infinite",
                 }}
               >
-                BarbuSportif AI
+                Rick AI
               </span>
               <img
                 src="/images/logo-white.png"
-                alt="BarbuSportif"
+                alt="Rick AI"
                 className="hidden size-6 md:block"
                 style={{
                   animation: "logo-shimmer 4s ease-in-out infinite",
@@ -861,7 +894,7 @@ const handleStopGeneration = useCallback(() => {
                         <h1 className="text-lg md:text-2xl font-normal text-foreground text-center px-6 max-w-sm">{t("chat.greeting")}</h1>
                       </div>
                     ) : (
-                      <ChatArea messages={messages} isLoading={isLoading} />
+                      <ChatArea messages={messages} isLoading={isLoading} onRegenerate={handleRegenerate} />
                     )}
                   </div>
                   
@@ -879,11 +912,24 @@ const handleStopGeneration = useCallback(() => {
                       onToolSelect={setActiveTool}
                       modelSelected={modelSelected}
                       onModelChange={setModelSelected}
+                      thinkingLevel={thinkingLevel}
+                      onThinkingLevelChange={setThinkingLevel}
                       messages={messages}
                       isSimple={false}
+                      chatId={activeChatId}
                       onScrollToMessage={(id) => {
                         const el = document.getElementById(`msg-${id}`)
                         if (el) el.scrollIntoView({ behavior: "smooth", block: "center" })
+                      }}
+                      isVoiceActive={voiceCallOpen}
+                      onLiveVoice={async () => {
+                        if (voiceCallOpen) {
+                          setVoiceCallOpen(false)
+                        } else {
+                          const token = user ? await user.getIdToken() : ""
+                          setVoiceToken(token)
+                          setVoiceCallOpen(true)
+                        }
                       }}
                     />
                     
@@ -909,6 +955,28 @@ const handleStopGeneration = useCallback(() => {
           )}
         </div>
       </main>
+
+      {/* ⌘K Search Modal — rendered at root so it overlays everything */}
+      <ChatSearchModal
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        messages={messages}
+        onScrollToMessage={(id) => {
+          setActivePanel('chat')
+          setTimeout(() => {
+            const el = document.getElementById(`msg-${id}`)
+            if (el) el.scrollIntoView({ behavior: "smooth", block: "center" })
+          }, 100)
+        }}
+      />
+
+      {/* Live Voice Call Overlay */}
+      <VoiceCallOverlay
+        isOpen={voiceCallOpen}
+        onClose={() => setVoiceCallOpen(false)}
+        firebaseToken={voiceToken}
+        panelContext={activePanel}
+      />
     </div>
   )
 }

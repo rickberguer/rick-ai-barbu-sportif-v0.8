@@ -106,8 +106,13 @@ export async function getDriveFileForAI(fileId: string, mimeType: string, access
     };
 
   } catch (error: any) {
-    console.error(`Error procesando archivo ${fileId}:`, error.message);
-    throw new Error(`Restricción de lectura o formato no procesable en el archivo.`);
+    const errorMsg = error.response?.data?.error?.message || error.message;
+    console.error(`[Drive API Error] Fallo al procesar archivo ${fileId}:`, errorMsg);
+    
+    if (errorMsg.includes("Forbidden") || errorMsg.includes("not found")) {
+      throw new Error(`Rick no tiene permiso para leer este archivo. Asegúrate de que esté compartido con la Cuenta de Servicio del Proyecto.`);
+    }
+    throw new Error(`Error al leer archivo (${mimeType}): ${errorMsg}`);
   }
 }
 
@@ -125,7 +130,7 @@ export async function saveToCorporateMemory(title: string, content: string) {
     // Solicitamos permiso explícito para crear/escribir archivos usando Domain-Wide Delegation
     const authClient = new google.auth.JWT({
       email: credentials.client_email,
-      key: credentials.private_key,
+      key: credentials.private_key ? credentials.private_key.replace(/\\n/g, '\n') : '',
       scopes: ['https://www.googleapis.com/auth/drive'],
     });
 

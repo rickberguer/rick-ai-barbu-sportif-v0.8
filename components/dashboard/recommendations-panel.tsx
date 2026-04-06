@@ -99,7 +99,7 @@ export function RecommendationsPanel() {
   const strategies = data?.strategies || []
 
   return (
-    <div className="flex h-full flex-col p-4 sm:p-6 md:pr-24 pb-32 md:pb-6 overflow-y-auto overflow-x-hidden animate-in fade-in duration-700">
+    <div className="flex h-full flex-col p-4 sm:p-6 md:pr-24 pb-32 md:pb-6 overflow-y-auto overflow-x-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 panel-stagger">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 shrink-0">
         <div>
           <h2 className="text-4xl font-bold tracking-tight text-foreground flex items-center gap-3">

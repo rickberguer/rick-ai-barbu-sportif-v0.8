@@ -7,7 +7,7 @@ export type Locale = "fr-CA" | "en-CA" | "es-MX"
 const translations: Record<Locale, Record<string, string>> = {
   "fr-CA": {
     // App
-    "app.loading": "Chargement de BarbuSportif AI...",
+    "app.loading": "Chargement de Rick AI...",
 
     // Login
     "login.subtitle": "Connectez-vous pour continuer.",
@@ -62,7 +62,7 @@ const translations: Record<Locale, Record<string, string>> = {
     "chat.audioAttachment": "Audio enregistre",
     "chat.fileAttachment": "Fichier joint",
 
-    "input.placeholder": "Demandez a BarbuSportif AI",
+    "input.placeholder": "Demandez a Rick AI",
     "input.attach": "Joindre",
     "input.uploadFiles": "Televerser des fichiers",
     "input.image": "Image",
@@ -76,7 +76,7 @@ const translations: Record<Locale, Record<string, string>> = {
     "input.send": "Envoyer le message",
     "input.stop": "Arrêter la génération",
     "input.processingWarning": "Rick est en train de traiter. Veuillez garder l'application ouverte.",
-    "input.disclaimer": "BarbuSportif AI est une IA et peut commettre des erreurs.",
+    "input.disclaimer": "Rick AI est une IA et peut commettre des erreurs.",
 
     // Tools menu
     "tools.deepResearch": "Recherche approfondie",
@@ -266,6 +266,11 @@ const translations: Record<Locale, Record<string, string>> = {
     "input.modelFast": "Rapide",
     "input.modelPro": "Pro",
     "input.modelProDesc": "Gemini Pro",
+    "input.thinkingLevel": "Niveau de réflexion",
+    "input.thinkingLow": "Rapide",
+    "input.thinkingLowDesc": "Moins de raisonnement interne",
+    "input.thinkingHigh": "Approfondi",
+    "input.thinkingHighDesc": "Raisonnement maximal",
 
     // Languages
     "lang.fr-CA": "Francais (Quebec)",
@@ -477,11 +482,34 @@ const translations: Record<Locale, Record<string, string>> = {
     "vision.label.person": "Personne",
     "vision.status.live": "Live AI Sync",
     "vision.status.connecting": "Connexion...",
+    "chat.regenerate": "Régénérer",
+    "chat.justNow": "À l'instant",
+    "chat.minutesAgo": "il y a {n} min",
+    "chat.hoursAgo": "il y a {n} h",
+    "search.title": "Rechercher",
+    "search.placeholder": "Rechercher dans la conversation...",
+    "search.noResults": "Aucun résultat",
+    "search.hint": "↑↓ naviguer · Entrée ouvrir · Échap fermer",
+    "kbShortcuts.title": "Raccourcis clavier",
+    "kbShortcuts.send": "Envoyer le message",
+    "kbShortcuts.newline": "Nouvelle ligne",
+    "kbShortcuts.search": "Rechercher (⌘K)",
+    "kbShortcuts.close": "Fermer / Annuler",
+    "app.pinShortcut": "Épingler",
+    "app.unpinShortcut": "Détacher",
+    "app.addShortcut": "Ajouter",
+    "app.deleteShortcut": "Supprimer",
+    "app.newShortcut": "Nouveau atajo",
+    "app.shortcutTitle": "Titre",
+    "app.shortcutPrompt": "Prompt",
+    "app.save": "Sauvegarder",
+    "input.tokens": "~{n} tokens",
+    "input.draft": "Brouillon",
   },
 
   "en-CA": {
     // App
-    "app.loading": "Loading BarbuSportif AI...",
+    "app.loading": "Loading Rick AI...",
 
     // Login
     "login.subtitle": "Sign in to continue.",
@@ -536,7 +564,7 @@ const translations: Record<Locale, Record<string, string>> = {
     "chat.audioAttachment": "Recorded audio",
     "chat.fileAttachment": "Attached file",
 
-    "input.placeholder": "Ask BarbuSportif AI",
+    "input.placeholder": "Ask Rick AI",
     "input.attach": "Attach",
     "input.uploadFiles": "Upload files",
     "input.image": "Image",
@@ -550,7 +578,7 @@ const translations: Record<Locale, Record<string, string>> = {
     "input.send": "Send message",
     "input.stop": "Stop generation",
     "input.processingWarning": "Rick is processing. Please keep the application open.",
-    "input.disclaimer": "BarbuSportif AI is an AI and may make mistakes.",
+    "input.disclaimer": "Rick AI is an AI and may make mistakes.",
 
     // Tools menu
     "tools.deepResearch": "Deep Research",
@@ -741,6 +769,11 @@ const translations: Record<Locale, Record<string, string>> = {
     "input.modelFast": "Fast",
     "input.modelPro": "Pro",
     "input.modelProDesc": "Gemini Pro",
+    "input.thinkingLevel": "Thinking level",
+    "input.thinkingLow": "Balanced",
+    "input.thinkingLowDesc": "Less internal reasoning",
+    "input.thinkingHigh": "Deep",
+    "input.thinkingHighDesc": "Maximum reasoning",
 
     // Languages
     "lang.fr-CA": "Francais (Quebec)",
@@ -952,11 +985,34 @@ const translations: Record<Locale, Record<string, string>> = {
     "vision.label.person": "Person",
     "vision.status.live": "Live AI Sync",
     "vision.status.connecting": "Connecting...",
+    "chat.regenerate": "Regenerate",
+    "chat.justNow": "Just now",
+    "chat.minutesAgo": "{n} min ago",
+    "chat.hoursAgo": "{n} h ago",
+    "search.title": "Search",
+    "search.placeholder": "Search in conversation...",
+    "search.noResults": "No results found",
+    "search.hint": "↑↓ navigate · Enter open · Esc close",
+    "kbShortcuts.title": "Keyboard shortcuts",
+    "kbShortcuts.send": "Send message",
+    "kbShortcuts.newline": "New line",
+    "kbShortcuts.search": "Search (⌘K)",
+    "kbShortcuts.close": "Close / Cancel",
+    "app.pinShortcut": "Pin",
+    "app.unpinShortcut": "Unpin",
+    "app.addShortcut": "Add",
+    "app.deleteShortcut": "Delete",
+    "app.newShortcut": "New shortcut",
+    "app.shortcutTitle": "Title",
+    "app.shortcutPrompt": "Prompt",
+    "app.save": "Save",
+    "input.tokens": "~{n} tokens",
+    "input.draft": "Draft",
   },
 
   "es-MX": {
     // App
-    "app.loading": "Cargando BarbuSportif AI...",
+    "app.loading": "Cargando Rick AI...",
 
     // Login
     "login.subtitle": "Inicia sesion para continuar.",
@@ -1011,7 +1067,7 @@ const translations: Record<Locale, Record<string, string>> = {
     "chat.audioAttachment": "Audio grabado",
     "chat.fileAttachment": "Archivo adjunto",
 
-    "input.placeholder": "Preguntale a BarbuSportif AI",
+    "input.placeholder": "Preguntale a Rick AI",
     "input.attach": "Adjuntar",
     "input.uploadFiles": "Subir archivos",
     "input.image": "Imagen",
@@ -1025,7 +1081,7 @@ const translations: Record<Locale, Record<string, string>> = {
     "input.send": "Enviar mensaje",
     "input.stop": "Detener generación",
     "input.processingWarning": "Rick está procesando. Por favor, mantén la aplicación abierta.",
-    "input.disclaimer": "BarbuSportif AI es una IA y puede cometer errores.",
+    "input.disclaimer": "Rick AI es una IA y puede cometer errores.",
 
     // Tools menu
     "tools.deepResearch": "Investigacion profunda",
@@ -1216,6 +1272,11 @@ const translations: Record<Locale, Record<string, string>> = {
     "input.modelFast": "Rapido",
     "input.modelPro": "Pro",
     "input.modelProDesc": "Gemini Pro",
+    "input.thinkingLevel": "Nivel de razonamiento",
+    "input.thinkingLow": "Balanceado",
+    "input.thinkingLowDesc": "Menos razonamiento interno",
+    "input.thinkingHigh": "Profundo",
+    "input.thinkingHighDesc": "Razonamiento máximo",
 
     // Languages
     "lang.fr-CA": "Francais (Quebec)",
@@ -1427,6 +1488,29 @@ const translations: Record<Locale, Record<string, string>> = {
     "vision.label.person": "Persona",
     "vision.status.live": "Live AI Sync",
     "vision.status.connecting": "Conectando...",
+    "chat.regenerate": "Regenerar",
+    "chat.justNow": "Ahora mismo",
+    "chat.minutesAgo": "hace {n} min",
+    "chat.hoursAgo": "hace {n} h",
+    "search.title": "Buscar",
+    "search.placeholder": "Buscar en la conversación...",
+    "search.noResults": "Sin resultados",
+    "search.hint": "↑↓ navegar · Enter abrir · Esc cerrar",
+    "kbShortcuts.title": "Atajos de teclado",
+    "kbShortcuts.send": "Enviar mensaje",
+    "kbShortcuts.newline": "Nueva línea",
+    "kbShortcuts.search": "Buscar (⌘K)",
+    "kbShortcuts.close": "Cerrar / Cancelar",
+    "app.pinShortcut": "Fijar",
+    "app.unpinShortcut": "Desfijar",
+    "app.addShortcut": "Añadir",
+    "app.deleteShortcut": "Eliminar",
+    "app.newShortcut": "Nuevo atajo",
+    "app.shortcutTitle": "Título",
+    "app.shortcutPrompt": "Prompt",
+    "app.save": "Guardar",
+    "input.tokens": "~{n} tokens",
+    "input.draft": "Borrador",
   },
 };
 

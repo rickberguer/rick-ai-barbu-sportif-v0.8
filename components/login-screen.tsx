@@ -164,7 +164,7 @@ export function LoginScreen() {
             animation: "shimmer 4s linear infinite",
           }}
         >
-          BarbuSportif AI
+          Rick AI
         </h1>
 
         {/* Subtitle */}

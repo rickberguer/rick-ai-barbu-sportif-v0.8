@@ -104,7 +104,7 @@ export function AccountingPanel() {
   if (!data) return null
 
   return (
-    <div className="flex h-full flex-col p-4 sm:p-6 md:pr-24 pb-32 md:pb-6 overflow-y-auto overflow-x-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="flex h-full flex-col p-4 sm:p-6 md:pr-24 pb-32 md:pb-6 overflow-y-auto overflow-x-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 panel-stagger">
       <div className="flex items-center justify-between mb-8 shrink-0">
         <div>
           <h2 className="text-3xl font-bold bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">

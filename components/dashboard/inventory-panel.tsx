@@ -87,7 +87,7 @@ export function InventoryPanel() {
   if (!data) return null
 
   return (
-    <div className="flex h-full flex-col p-4 md:pl-8 md:pt-8 pr-4 md:pr-24 pb-32 animate-in fade-in duration-500 overflow-y-auto">
+    <div className="flex h-full flex-col p-4 md:pl-8 md:pt-8 pr-4 md:pr-24 pb-32 animate-in fade-in slide-in-from-bottom-4 duration-500 overflow-y-auto panel-stagger">
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-4">
           <div className="p-3 bg-primary/10 rounded-2xl">

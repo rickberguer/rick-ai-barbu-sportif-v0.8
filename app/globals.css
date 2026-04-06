@@ -145,18 +145,22 @@
 /* === Animated gradient background === */
 .glass-bg {
   background:
-    radial-gradient(ellipse 80% 60% at 20% 30%, rgba(59,130,246,0.12) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 50% at 80% 70%, rgba(139,92,246,0.10) 0%, transparent 55%),
-    radial-gradient(ellipse 50% 40% at 50% 50%, rgba(236,72,153,0.06) 0%, transparent 50%),
+    radial-gradient(ellipse 110% 90% at -5% 5%,  rgba(59,130,246,0.22) 0%, transparent 48%),
+    radial-gradient(ellipse 90%  80% at 105% 95%, rgba(139,92,246,0.18) 0%, transparent 48%),
+    radial-gradient(ellipse 65%  55% at 75%  15%, rgba(236,72,153,0.10) 0%, transparent 44%),
+    radial-gradient(ellipse 55%  65% at 15%  85%, rgba(16,185,129,0.08)  0%, transparent 40%),
+    radial-gradient(ellipse 40%  35% at 55%  50%, rgba(245,158,11,0.05)  0%, transparent 38%),
     var(--background);
-  animation: bgShift 12s ease-in-out infinite alternate;
+  animation: bgShift 18s ease-in-out infinite alternate;
 }
 
 .dark .glass-bg {
   background:
-    radial-gradient(ellipse 80% 60% at 20% 30%, rgba(59,130,246,0.08) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 50% at 80% 70%, rgba(139,92,246,0.07) 0%, transparent 55%),
-    radial-gradient(ellipse 50% 40% at 50% 50%, rgba(236,72,153,0.04) 0%, transparent 50%),
+    radial-gradient(ellipse 110% 90% at -5% 5%,  rgba(59,130,246,0.14) 0%, transparent 48%),
+    radial-gradient(ellipse 90%  80% at 105% 95%, rgba(139,92,246,0.13) 0%, transparent 48%),
+    radial-gradient(ellipse 65%  55% at 75%  15%, rgba(236,72,153,0.07) 0%, transparent 44%),
+    radial-gradient(ellipse 55%  65% at 15%  85%, rgba(16,185,129,0.05)  0%, transparent 40%),
+    radial-gradient(ellipse 40%  35% at 55%  50%, rgba(245,158,11,0.04)  0%, transparent 38%),
     var(--background);
 }
 
@@ -222,16 +226,18 @@
 
 .glass-bubble-ai {
   background: var(--gemini-bubble);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
 }
 
 .glass-bubble-user {
   background: var(--user-bubble);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(96, 165, 250, 0.22);
+  box-shadow: 0 2px 16px rgba(59, 130, 246, 0.10);
 }
 
 /* Custom animations */
@@ -243,6 +249,33 @@
 @keyframes messageSlideIn {
   from { opacity: 0; transform: translateY(12px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* Fluid spring entrance for chat messages */
+@keyframes messageIn {
+  0%   { opacity: 0; transform: translateY(14px) scale(0.97); }
+  60%  { opacity: 1; transform: translateY(-2px) scale(1.005); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* User message slides from right */
+@keyframes messageInUser {
+  0%   { opacity: 0; transform: translateX(12px) scale(0.97); }
+  60%  { opacity: 1; transform: translateX(-2px) scale(1.005); }
+  100% { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+/* AI message slides from left */
+@keyframes messageInAI {
+  0%   { opacity: 0; transform: translateX(-12px) scale(0.97); }
+  60%  { opacity: 1; transform: translateX(2px) scale(1.005); }
+  100% { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+/* Sidebar chat item */
+@keyframes sidebarItemIn {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
 }
 
 @keyframes subtleGlow {
@@ -292,10 +325,119 @@
   50% { transform: translateY(-4px) scale(1.02); }
 }
 
+/* ── Waveform streaming cursor ──────────────────────────────────────────── */
+@keyframes waveform {
+  0%, 100% { transform: scaleY(0.4); }
+  50%       { transform: scaleY(1.0); }
+}
+
+/* ── 60fps GPU-safe animations ─────────────────────────────────────────── */
+
+/* Send button glow pulse when active */
+@keyframes send-ready {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--primary-rgb, 99 102 241), 0); }
+  50%       { box-shadow: 0 0 0 6px rgba(var(--primary-rgb, 99 102 241), 0.12); }
+}
+
+/* Input bubble breathing glow while AI is typing */
+@keyframes input-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+  50%       { box-shadow: 0 0 20px 2px rgba(99, 102, 241, 0.07); }
+}
+.animate-input-pulse {
+  animation: input-pulse 2s ease-in-out infinite;
+}
+
+/* Staggered shortcut entrance (uses Tailwind animate-in + custom delay via inline style) */
+@keyframes slide-up-fade {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Tools strip entry */
+@keyframes strip-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Hover lift for interactive cards — uses only transform+shadow (GPU) */
+.hover-lift {
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  will-change: transform;
+}
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+}
+
 /* Selection color */
 ::selection {
   background: rgba(96, 165, 250, 0.3);
   color: inherit;
+}
+
+/* ── Dashboard panel card stagger ──────────────────────────────────────────── */
+@keyframes cardRise {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Apply to a container whose direct children should stagger in */
+.panel-stagger > * {
+  opacity: 0;
+  animation: cardRise 0.42s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+}
+.panel-stagger > *:nth-child(1)  { animation-delay: 55ms;  }
+.panel-stagger > *:nth-child(2)  { animation-delay: 110ms; }
+.panel-stagger > *:nth-child(3)  { animation-delay: 165ms; }
+.panel-stagger > *:nth-child(4)  { animation-delay: 220ms; }
+.panel-stagger > *:nth-child(5)  { animation-delay: 275ms; }
+.panel-stagger > *:nth-child(6)  { animation-delay: 330ms; }
+.panel-stagger > *:nth-child(7)  { animation-delay: 385ms; }
+.panel-stagger > *:nth-child(8)  { animation-delay: 440ms; }
+.panel-stagger > *:nth-child(9)  { animation-delay: 495ms; }
+.panel-stagger > *:nth-child(10) { animation-delay: 550ms; }
+.panel-stagger > *:nth-child(11) { animation-delay: 605ms; }
+.panel-stagger > *:nth-child(12) { animation-delay: 660ms; }
+
+/* ── Glass card ambient hover glow (GPU-safe) ───────────────────────────── */
+.glass-card-hover {
+  transition: box-shadow 0.22s ease, transform 0.22s ease;
+  will-change: transform, box-shadow;
+}
+.glass-card-hover:hover {
+  box-shadow:
+    0 0 0 1px rgba(96, 165, 250, 0.18),
+    0 8px 28px rgba(59, 130, 246, 0.1),
+    var(--glass-shadow);
+  transform: translateY(-2px) scale(1.005);
+}
+
+/* ── Metric number reveal glow ──────────────────────────────────────────── */
+@keyframes statReveal {
+  0%   { filter: brightness(1); }
+  40%  { filter: brightness(1.35) drop-shadow(0 0 6px rgba(96,165,250,0.55)); }
+  100% { filter: brightness(1); }
+}
+.stat-reveal {
+  animation: statReveal 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: inherit;
+}
+
+/* ── Ambient idle glow on live/active panels ────────────────────────────── */
+@keyframes panelAmbient {
+  0%, 100% { box-shadow: var(--glass-shadow); }
+  50%      { box-shadow: var(--glass-shadow), 0 0 40px 4px rgba(59,130,246,0.05); }
+}
+.panel-ambient {
+  animation: panelAmbient 6s ease-in-out infinite;
 }
 
 /* Touch device detection for hover-only elements */

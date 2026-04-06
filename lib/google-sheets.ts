@@ -7,6 +7,9 @@ async function getSheetsClient() {
   if (!authJson) throw new Error("DRIVE_SERVICE_ACCOUNT_JSON not found");
 
   const credentials = JSON.parse(authJson);
+  if (credentials.private_key) {
+    credentials.private_key = credentials.private_key.replace(/\\n/g, '\n');
+  }
   const auth = new google.auth.GoogleAuth({
     credentials,
     scopes: SCOPES,

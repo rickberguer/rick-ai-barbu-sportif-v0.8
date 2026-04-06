@@ -10,6 +10,7 @@ import { useI18n } from "@/lib/i18n";
 interface Detection {
   label: string;
   box: [number, number, number, number]; // [x1, y1, x2, y2] normalizados a 0-1000
+  track_id?: number;
 }
 
 interface CameraDetectionData {
@@ -30,6 +31,9 @@ interface TrackedDetection {
 interface LiveVisionCameraProps {
   cameraName: string;
   className?: string;
+  externalDetections?: Detection[]; // Detecciones externas (WebSocket)
+  rotation?: -90 | 0;               // Rotación CSS para cámaras físicamente rotadas
+  reconnectKey?: number;            // Incrementar para forzar reconexión WebRTC
 }
 
 
@@ -39,16 +43,23 @@ interface LiveVisionCameraProps {
 // ============================================================
 const LABEL_PALETTE: Record<string, { rgb: string; emoji: string }> = {
   barber:         { rgb: "34, 197, 94",   emoji: "✂️" },   // Emerald
-  barber_cutting: { rgb: "16, 185, 129",  emoji: "✂️" },   // Teal
   client:         { rgb: "59, 130, 246",  emoji: "💺" },   // Blue
   child_client:   { rgb: "251, 146, 60",  emoji: "🧒" },   // Orange
-  child_seat:     { rgb: "148, 163, 184", emoji: "🪑" },   // Slate (Mueble)
-  smoker:         { rgb: "239, 68, 68",   emoji: "🚬" },   // Red (alerta)
+  waiting_area:   { rgb: "148, 163, 184", emoji: "🛋️" },   // Slate
   waiting_client: { rgb: "168, 85, 247",  emoji: "⏳" },   // Purple
   chair_empty:    { rgb: "148, 163, 184", emoji: "🪑" },   // Slate
   chair_occupied: { rgb: "245, 158, 11",  emoji: "🪑" },   // Amber
-  premium_towel:  { rgb: "234, 179, 8",   emoji: "🤍" },   // Gold
-  person:         { rgb: "255, 255, 255", emoji: "👤" },   // White (genérico)
+  mirror:         { rgb: "147, 197, 253", emoji: "🪞" },   // Sky
+  phone:          { rgb: "234, 179, 8",   emoji: "📱" },   // Gold
+  bag:            { rgb: "148, 163, 184", emoji: "👜" },   // Slate
+  scissors:       { rgb: "147, 197, 253", emoji: "✂️" },   // Sky
+  trimmer:        { rgb: "147, 197, 253", emoji: "🪮" },   // Sky
+  cigarette:      { rgb: "239, 68, 68",   emoji: "🚬" },   // Red (Alerta)
+  vape:           { rgb: "239, 68, 68",   emoji: "💨" },   // Red (Alerta)
+  laptop:         { rgb: "96, 165, 250",  emoji: "💻" },   // Blue
+  ring_light:     { rgb: "255, 255, 255", emoji: "🔆" },   // White
+  kid_vehicle:    { rgb: "244, 63, 94",   emoji: "🏎️" },   // Rose
+  person:         { rgb: "255, 255, 255", emoji: "👤" },   // White
 };
 
 const DEFAULT_PALETTE = { rgb: "255, 255, 255", emoji: "📍" };
@@ -63,7 +74,11 @@ function lerp(a: number, b: number, t: number): number {
 }
 
 /** Genera un ID de tracking basado en label + posición de grid (~100px gross) */
-function trackingId(label: string, box: [number, number, number, number]): string {
+/** Genera un ID de tracking basado en track_id de la IA o grid aproximado como fallback */
+function trackingId(label: string, box: [number, number, number, number], track_id?: number): string {
+  if (track_id !== undefined && track_id !== -1) {
+    return `tr_${track_id}`;
+  }
   const gx = Math.round(box[0] / 80);
   const gy = Math.round(box[1] / 80);
   return `${label}_${gx}_${gy}`;
@@ -73,7 +88,7 @@ function trackingId(label: string, box: [number, number, number, number]): strin
 // ============================================================
 // COMPONENTE PRINCIPAL
 // ============================================================
-export default function LiveVisionCamera({ cameraName, className }: LiveVisionCameraProps) {
+export default function LiveVisionCamera({ cameraName, className, externalDetections, rotation, reconnectKey }: LiveVisionCameraProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const trackedRef = useRef<Map<string, TrackedDetection>>(new Map());
@@ -323,13 +338,14 @@ export default function LiveVisionCamera({ cameraName, className }: LiveVisionCa
         const now   = Date.now();
         const seen  = new Set<string>();
 
-        data.detections.forEach((det) => {
-          const id = trackingId(det.label, det.box);
+        data.detections.forEach((det: any) => {
+          const id = trackingId(det.label, det.box, det.track_id);
           seen.add(id);
 
           const existing = trackedRef.current.get(id);
           if (existing) {
             existing.targetBox  = det.box;
+            existing.label      = det.label; // Actualizar label si cambió por lógica espacial
             existing.lastSeen   = now;
           } else {
             trackedRef.current.set(id, {
@@ -365,10 +381,53 @@ export default function LiveVisionCamera({ cameraName, className }: LiveVisionCa
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cameraName, startWebRTC]);
 
+  // =====================================================
+  // RECONEXIÓN FORZADA — cuando reconnectKey incrementa
+  // =====================================================
+  const prevReconnectKeyRef = useRef(reconnectKey ?? 0);
+  useEffect(() => {
+    if (reconnectKey !== undefined && reconnectKey !== prevReconnectKeyRef.current) {
+      prevReconnectKeyRef.current = reconnectKey;
+      startWebRTC();
+    }
+  }, [reconnectKey, startWebRTC]);
+
+  // =====================================================
+  // ACTUALIZACIÓN DE DETECCIONES EXTERNAS
+  // =====================================================
+  useEffect(() => {
+    if (!externalDetections || externalDetections.length === 0) return;
+
+    const now = Date.now();
+    externalDetections.forEach((det: any) => {
+      const id = trackingId(det.label, det.box, det.track_id);
+      const existing = trackedRef.current.get(id);
+
+      if (existing) {
+        existing.targetBox = [...det.box] as [number, number, number, number];
+        existing.label     = det.label;
+        existing.lastSeen  = now;
+      } else {
+        trackedRef.current.set(id, {
+          id,
+          label:      det.label,
+          displayBox: [...det.box] as [number, number, number, number],
+          targetBox:  [...det.box] as [number, number, number, number],
+          lastSeen:   now,
+          born:       now,
+        });
+      }
+    });
+  }, [externalDetections]);
+
+  const isPortrait = rotation === -90;
+
   return (
     <div className={cn("relative group transition-all duration-500", className)}>
-      <div className="relative w-full overflow-hidden rounded-xl border border-white/10 bg-black shadow-2xl flex items-center justify-center min-h-[300px]">
-
+      <div
+        className="relative w-full overflow-hidden rounded-xl border border-white/10 bg-black shadow-2xl flex items-center justify-center"
+        style={isPortrait ? { aspectRatio: "9/16" } : { minHeight: "300px" }}
+      >
         {/* ── Badge de estado ── top-right ──────────────────────────────── */}
         <div className="absolute top-3 right-3 z-30 flex items-center gap-2 bg-black/60 backdrop-blur-xl px-3 py-1.5 rounded-full border border-white/10">
           <div
@@ -376,8 +435,6 @@ export default function LiveVisionCamera({ cameraName, className }: LiveVisionCa
               "size-2 rounded-full animate-pulse",
               isStreaming
                 ? "bg-emerald-500 shadow-[0_0_8px_#10b981]"
-                : streamError
-                ? "bg-yellow-500"
                 : "bg-yellow-500"
             )}
           />
@@ -386,26 +443,19 @@ export default function LiveVisionCamera({ cameraName, className }: LiveVisionCa
           </span>
         </div>
 
-        {/* ── Leyenda compacta ── bottom-left ─────────────────────────────── */}
-        <div className="absolute bottom-2 left-2 z-30 flex flex-col gap-0.5 bg-black/50 backdrop-blur-sm px-2 py-1.5 rounded-lg border border-white/10">
-          {Object.entries(LABEL_PALETTE)
-            .filter(([key]) => !["chair_empty", "premium_towel"].includes(key))
-            .slice(0, 5)
-            .map(([key, { rgb, emoji }]) => (
-            <div key={key} className="flex items-center gap-1">
-              <div
-                className="size-1.5 rounded-full flex-shrink-0"
-                style={{ backgroundColor: `rgb(${rgb})` }}
-              />
-              <span className="text-[8px] text-white/60 font-medium leading-none">
-                {emoji} {getDisplayLabel(key)}
-              </span>
-            </div>
-          ))}
-        </div>
-
         {/* ── Contenedor Video WebRTC + Canvas AR ─────────────────────────── */}
-        <div className="relative w-full h-full flex items-center justify-center">
+        {/* Para cámaras rotadas: el wrapper rota -90° llenando el portrait container */}
+        <div
+          className="relative flex items-center justify-center"
+          style={isPortrait ? {
+            position:  "absolute",
+            width:     "177.78%",   // 16/9 × 100% — ocupa el ancho extendido
+            height:    "56.25%",    // 9/16 × 100% — ocupa la altura comprimida
+            top:       "50%",
+            left:      "50%",
+            transform: "translate(-50%, -50%) rotate(-90deg)",
+          } : { width: "100%", height: "100%" }}
+        >
           <video
             ref={videoRef}
             autoPlay

@@ -109,7 +109,7 @@ export async function runFullStrategicAnalysis(userId: string, locale: string = 
         type: driveCreds.type,
         project_id: driveCreds.project_id,
         private_key_id: driveCreds.private_key_id,
-        private_key: driveCreds.private_key,
+        private_key: driveCreds.private_key ? driveCreds.private_key.replace(/\\n/g, '\n') : '',
         client_email: driveCreds.client_email,
         client_id: driveCreds.client_id,
       },
@@ -121,7 +121,7 @@ export async function runFullStrategicAnalysis(userId: string, locale: string = 
 
     const baseUrl = "https://aiplatform.googleapis.com";
     const LOCATION_VERTEX = "global";
-    const GEMINI_MODEL = "gemini-3-pro-preview";
+    const GEMINI_MODEL = "gemini-3.1-pro-preview";
 
     const geminiRes = await fetch(`${baseUrl}/v1/projects/${projectId}/locations/${LOCATION_VERTEX}/publishers/google/models/${GEMINI_MODEL}:generateContent`, {
       method: "POST",
