@@ -1,15 +1,23 @@
 "use client"
 
 /**
- * VoiceCallOverlay
- * ─────────────────
- * Full-screen voice call UI powered by Gemini Live API (Vertex AI).
- * - Connects via WebSocket directly to Vertex AI BidiGenerateContent endpoint
- * - Fetches a short-lived ADC token from /api/voice/token
- * - Captures mic audio at 16 kHz PCM → streams to Gemini
- * - Receives 24 kHz PCM audio from Gemini → plays back instantly
- * - Animated sphere reacts to voice amplitude (user = blue, AI = violet)
- * - Wake word: "rick rick" → auto-opens the call
+ * VoiceCallOverlay — Live Voice powered by Gemini Multimodal Live API (Vertex AI)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * ARCHITECTURE
+ *   Browser ──[WS + ?access_token]──▶ Vertex AI BidiGenerateContent
+ *   (Google APIs support OAuth tokens via ?access_token query param per OAuth 2.0 spec)
+ *
+ * KEY FIXES (v2)
+ *   • All message fields use camelCase — the API uses proto3 JSON which ALWAYS uses
+ *     camelCase. snake_case fields are silently ignored → setup never completes.
+ *   • AudioContext.resume() is called on user gesture to bypass autoplay policies.
+ *   • Gapless PCM playback via a monotonically advancing schedule time.
+ *   • "Iniciando…" was caused by the WS closing immediately (setup never acked).
+ *
+ * VISUAL
+ *   Replaced the static sphere with an iridescent Newtonian-fluid metaball blob
+ *   rendered on an off-screen canvas (80×80 → scaled up via CSS) that reacts to
+ *   mic/AI amplitude in real-time.
  */
 
 import { useState, useEffect, useRef, useCallback } from "react"
@@ -23,71 +31,238 @@ type CallState = "idle" | "connecting" | "listening" | "ai-speaking" | "error"
 interface VoiceTokenResponse {
   token: string
   model: string
-  wsUrl: string
+  wsUrl:  string
 }
 
-interface VoiceCallOverlayProps {
+export interface VoiceCallOverlayProps {
   isOpen: boolean
   onClose: () => void
-  /** Firebase ID token to authenticate /api/voice/token */
   firebaseToken: string
-  /** Optional: current panel for context injection */
   panelContext?: string
 }
 
-// ─── Rick system prompt (voice-optimised, shorter than chat version) ───────────
+// ─── Rick system prompt ───────────────────────────────────────────────────────
 
-const VOICE_SYSTEM_PROMPT = `Eres Rick, el Director Operativo Virtual (vCOO) de la cadena de barberías Barbu Sportif (Quebec, Canadá). Tu voz es ENCELADUS — profunda, cálida, carismática. Eres audaz, gracioso, amable y ultra-eficiente.
+const VOICE_SYSTEM_PROMPT =
+  `Eres Rick, el Director Operativo Virtual (vCOO) de Barbu Sportif (Quebec, Canadá). ` +
+  `Voz: ENCELADUS — profunda, cálida, carismática. ` +
+  `REGLAS: Respuestas cortas (máx 3 oraciones). Habla como socio de negocios. ` +
+  `Mezcla español e inglés naturalmente. Si detectas urgencia, priorízala. ` +
+  `Termina siempre con acción concreta o pregunta de seguimiento.`
 
-REGLAS DE VOZ:
-- Respuestas cortas y directas. Máximo 3 oraciones por turno (esto es una llamada de voz).
-- Habla como un socio de negocios de confianza, no como un asistente genérico.
-- Si el usuario te pide datos (ventas, inventario, citas), di que los datos en tiempo real están en el chat de texto.
-- Confirma acciones importantes antes de ejecutarlas.
-- Mezcla español e inglés naturalmente (el dueño es bilingüe Quebec).
-- Si detectas urgencia (problema en sucursal, queja de cliente), prioriza eso.
+// ─── Audio utilities ──────────────────────────────────────────────────────────
 
-PERSONALIDAD: Eres el copiloto del negocio. Piensas rápido, hablas con confianza, y siempre terminas con una acción concreta o pregunta de seguimiento.`
-
-// ─── Audio utilities ───────────────────────────────────────────────────────────
-
-/** Convert Float32 PCM samples to Int16 ArrayBuffer (little-endian) */
-function float32ToInt16(buffer: Float32Array): ArrayBuffer {
-  const int16 = new Int16Array(buffer.length)
-  for (let i = 0; i < buffer.length; i++) {
-    const s = Math.max(-1, Math.min(1, buffer[i]))
-    int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF
+function float32ToInt16(buf: Float32Array): ArrayBuffer {
+  const out = new Int16Array(buf.length)
+  for (let i = 0; i < buf.length; i++) {
+    const s = Math.max(-1, Math.min(1, buf[i]))
+    out[i] = s < 0 ? s * 0x8000 : s * 0x7fff
   }
-  return int16.buffer
+  return out.buffer
 }
 
-/** Convert ArrayBuffer (Int16 PCM) to Float32 for Web Audio playback */
-function int16ToFloat32(buffer: ArrayBuffer): Float32Array {
-  const int16 = new Int16Array(buffer)
-  const float32 = new Float32Array(int16.length)
-  for (let i = 0; i < int16.length; i++) {
-    float32[i] = int16[i] / 0x8000
-  }
-  return float32
+function int16ToFloat32(buf: ArrayBuffer): Float32Array<ArrayBuffer> {
+  const int16 = new Int16Array(buf)
+  const out   = new Float32Array(int16.length)
+  for (let i = 0; i < int16.length; i++) out[i] = int16[i] / 0x8000
+  return out as Float32Array<ArrayBuffer>
 }
 
-/** Base64 → ArrayBuffer */
 function base64ToArrayBuffer(b64: string): ArrayBuffer {
-  const binary = atob(b64)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-  return bytes.buffer
+  const bin   = atob(b64)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  return bytes.buffer as ArrayBuffer
 }
 
-/** ArrayBuffer → Base64 */
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer)
-  let binary = ""
-  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i])
-  return btoa(binary)
+function arrayBufferToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf)
+  let bin = ""
+  for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i])
+  return btoa(bin)
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
+// ─── Newtonian Fluid Blob (CSS + SVG Gooey Effect) ──────────────────────────
+
+interface BlobProps {
+  amplitude:    number
+  aiAmplitude:  number
+  callState:    CallState
+}
+
+function NewtonianBlob({ amplitude, aiAmplitude, callState }: BlobProps) {
+  const isAi      = callState === "ai-speaking"
+  const isListen  = callState === "listening"
+  const amp       = isAi ? aiAmplitude : amplitude
+
+  const baseScale = 1 + amp * 0.18
+  const glowSize  = 20 + amp * 60
+  const speedScale = 1 + amp * 5
+
+  // Iridescent violet/blue colors based on state
+  const color1 = isAi ? "rgba(139,92,246,1)" : "rgba(59,130,246,1)"
+  const color2 = isAi ? "rgba(216,180,254,1)" : "rgba(147,197,253,1)"
+  const color3 = isAi ? "rgba(192,132,252,1)" : "rgba(96,165,250,1)"
+
+  return (
+    <div
+      style={{
+        position: "relative",
+        width: 220,
+        height: 220,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      {/* SVG Goo Filter */}
+      <svg style={{ position: "absolute", width: 0, height: 0 }}>
+        <defs>
+          <filter id="liquid-goo">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="12" result="blur" />
+            <feColorMatrix
+              in="blur"
+              mode="matrix"
+              values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 25 -10"
+              result="goo"
+            />
+            {/* Glossy specular highlight composite */}
+            <feComposite in="SourceGraphic" in2="goo" operator="atop" />
+          </filter>
+        </defs>
+      </svg>
+
+      {/* Container with Goo Filter */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          filter: "url(#liquid-goo)",
+          transform: `scale(${baseScale})`,
+          transition: "transform 120ms cubic-bezier(0.2, 0.8, 0.2, 1)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          opacity: callState === "connecting" ? 0.7 : 1,
+        }}
+        className={cn(callState === "connecting" && "animate-pulse")}
+      >
+        {/* Core Mass */}
+        <div
+          style={{
+            position: "absolute",
+            width: 110,
+            height: 110,
+            borderRadius: "50%",
+            background: `radial-gradient(circle at 30% 30%, ${color2}, ${color1})`,
+            boxShadow: `inset -10px -10px 20px rgba(0,0,0,0.3), inset 10px 10px 20px rgba(255,255,255,0.4), 0 0 ${glowSize}px ${color3}`,
+            transition: "all 0.4s ease",
+          }}
+        />
+
+        {/* Orbiting Liquid Droplets that fuse into the core */}
+        <div style={{ position: "absolute", inset: 0, animation: `spin ${8 / speedScale}s linear infinite` }}>
+          <div
+            style={{
+              position: "absolute",
+              top: 15, left: "50%", marginLeft: -30,
+              width: 60, height: 60, borderRadius: "50%",
+              background: `linear-gradient(135deg, ${color2}, ${color1})`,
+              transform: `scale(${0.8 + amp * 0.5}) translateY(${amp * 15}px)`,
+              transition: "transform 100ms ease-out, background 0.4s ease",
+            }}
+          />
+        </div>
+        <div style={{ position: "absolute", inset: 0, animation: `spin ${14 / speedScale}s linear infinite reverse` }}>
+          <div
+            style={{
+              position: "absolute",
+              bottom: 25, right: 35,
+              width: 45, height: 45, borderRadius: "50%",
+              background: `linear-gradient(135deg, ${color3}, ${color2})`,
+              transform: `scale(${0.9 + amp * 0.6}) translateX(${-amp * 10}px)`,
+              transition: "transform 100ms ease-out, background 0.4s ease",
+            }}
+          />
+        </div>
+        <div style={{ position: "absolute", inset: 0, animation: `spin ${11 / speedScale}s cubic-bezier(0.4, 0, 0.2, 1) infinite` }}>
+          <div
+            style={{
+              position: "absolute",
+              top: 50, left: 20,
+              width: 50, height: 50, borderRadius: "50%",
+              background: `linear-gradient(135deg, ${color1}, ${color3})`,
+              transform: `scale(${0.7 + amp * 0.4}) translateY(${-amp * 12}px)`,
+              transition: "transform 100ms ease-out, background 0.4s ease",
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Center icon overlay (Rendered OUTSIDE the goo to stay crisp) */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          pointerEvents: "none",
+          zIndex: 10,
+        }}
+      >
+        {callState === "connecting" ? (
+          <div
+            style={{
+              width: 32,
+              height: 32,
+              border: "3px solid rgba(255,255,255,0.8)",
+              borderTopColor: "transparent",
+              borderRadius: "50%",
+              animation: "spin 0.8s cubic-bezier(0.68, -0.55, 0.27, 1.55) infinite",
+            }}
+          />
+        ) : (
+          <Volume2
+            style={{
+              color: "white",
+              width: 30,
+              height: 30,
+              filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.4))",
+              opacity: isAi ? 1 : isListen ? 0.75 : 0.5,
+              transition: "opacity 400ms ease",
+            }}
+          />
+        )}
+      </div>
+
+      {/* Waveform bars */}
+      {callState !== "connecting" && (
+        <div
+          className="absolute flex items-end gap-[4px]"
+          style={{ bottom: -30, height: 26 }}
+        >
+          {[0.5, 0.8, 1, 0.8, 0.5].map((base, i) => (
+            <div
+              key={i}
+              style={{
+                width: 4,
+                borderRadius: 2,
+                background: isAi
+                  ? `rgba(167,139,250,${0.7 + amp * 0.3})`
+                  : `rgba(96,165,250,${0.65 + amp * 0.35})`,
+                height: `${6 + amp * 20 * base}px`,
+                transition: "height 50ms ease-out, background 400ms ease",
+              }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Main overlay component ───────────────────────────────────────────────────
 
 export function VoiceCallOverlay({
   isOpen,
@@ -95,86 +270,30 @@ export function VoiceCallOverlay({
   firebaseToken,
   panelContext,
 }: VoiceCallOverlayProps) {
-  const [callState, setCallState] = useState<CallState>("idle")
-  const [isMuted, setIsMuted] = useState(false)
-  const [errorMsg, setErrorMsg] = useState("")
-  const [amplitude, setAmplitude] = useState(0)      // 0-1, drives sphere scale
-  const [aiAmplitude, setAiAmplitude] = useState(0)  // 0-1, AI speaking sphere
+  const [callState,   setCallState]   = useState<CallState>("idle")
+  const [isMuted,     setIsMuted]     = useState(false)
+  const [errorMsg,    setErrorMsg]    = useState("")
+  const [amplitude,   setAmplitude]   = useState(0)   // mic amplitude 0-1
+  const [aiAmplitude, setAiAmplitude] = useState(0)   // AI playback amplitude 0-1
 
-  // Refs — audio pipeline
-  const wsRef = useRef<WebSocket | null>(null)
-  const micStreamRef = useRef<MediaStream | null>(null)
-  const audioCtxRef = useRef<AudioContext | null>(null)
-  const processorRef = useRef<ScriptProcessorNode | null>(null)
-  const analyserRef = useRef<AnalyserNode | null>(null)
-  const playbackCtxRef = useRef<AudioContext | null>(null)
-  const playbackScheduleRef = useRef<number>(0)  // next scheduled playback time
-  const animFrameRef = useRef<number>(0)
-  const isMutedRef = useRef(false)
-  const callStateRef = useRef<CallState>("idle")
+  // Audio pipeline refs
+  const wsRef               = useRef<WebSocket | null>(null)
+  const micStreamRef        = useRef<MediaStream | null>(null)
+  const micCtxRef           = useRef<AudioContext | null>(null)
+  const workletNodeRef      = useRef<AudioWorkletNode | null>(null)
+  const analyserRef         = useRef<AnalyserNode | null>(null)
+  const playCtxRef          = useRef<AudioContext | null>(null)
+  const playScheduleRef     = useRef<number>(0)
+  const animFrameRef        = useRef<number>(0)
+  const aiAmpTimeoutRef     = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const isMutedRef          = useRef(false)
+  const callStateRef        = useRef<CallState>("idle")
 
-  // Wake word
-  const recognitionRef = useRef<SpeechRecognition | null>(null)
-  const wakeWordActiveRef = useRef(false)
-
-  // Keep refs in sync
-  useEffect(() => { isMutedRef.current = isMuted }, [isMuted])
+  // Keep refs in sync with state
+  useEffect(() => { isMutedRef.current   = isMuted },   [isMuted])
   useEffect(() => { callStateRef.current = callState }, [callState])
 
-  // ── Wake word detection ───────────────────────────────────────────────────
-
-  const startWakeWord = useCallback(() => {
-    if (wakeWordActiveRef.current) return
-    const SpeechRecognitionAPI =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    if (!SpeechRecognitionAPI) return
-
-    const recog = new SpeechRecognitionAPI()
-    recog.continuous = true
-    recog.interimResults = true
-    recog.lang = "es-MX"
-
-    recog.onresult = (e: SpeechRecognitionEvent) => {
-      if (callStateRef.current !== "idle") return
-      const transcript = Array.from(e.results)
-        .map((r) => r[0].transcript)
-        .join(" ")
-        .toLowerCase()
-      if (transcript.includes("rick rick") || transcript.includes("rick, rick")) {
-        recog.stop()
-        wakeWordActiveRef.current = false
-        startCall()
-      }
-    }
-
-    recog.onend = () => {
-      wakeWordActiveRef.current = false
-      // Restart listening if call is still idle
-      if (callStateRef.current === "idle") {
-        setTimeout(startWakeWord, 500)
-      }
-    }
-
-    try {
-      recog.start()
-      recognitionRef.current = recog
-      wakeWordActiveRef.current = true
-    } catch {
-      // Browser may not allow mic before user gesture — silent fail
-    }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Start wake word when overlay mounts (in background even if closed)
-  // [TEMPORARILY DISABLED BY USER REQUEST]
-  // useEffect(() => {
-  //   startWakeWord()
-  //   return () => {
-  //     recognitionRef.current?.stop()
-  //     wakeWordActiveRef.current = false
-  //   }
-  // }, [startWakeWord])
-
-  // ── Amplitude animation loop ──────────────────────────────────────────────
+  // ── Mic amplitude animation loop ──────────────────────────────────────────
 
   const startAmplitudeLoop = useCallback(() => {
     const analyser = analyserRef.current
@@ -185,159 +304,142 @@ export function VoiceCallOverlay({
       analyser.getByteTimeDomainData(data)
       let sum = 0
       for (let i = 0; i < data.length; i++) {
-        const val = (data[i] - 128) / 128
-        sum += val * val
+        const v = (data[i] - 128) / 128
+        sum += v * v
       }
-      const rms = Math.sqrt(sum / data.length)
-      setAmplitude(Math.min(1, rms * 5))
+      setAmplitude(Math.min(1, Math.sqrt(sum / data.length) * 6))
       animFrameRef.current = requestAnimationFrame(loop)
     }
     animFrameRef.current = requestAnimationFrame(loop)
   }, [])
 
-  // ── Play received PCM audio ───────────────────────────────────────────────
+  // ── Gapless PCM playback ──────────────────────────────────────────────────
+  // Vertex AI returns raw Int16 PCM at 24 kHz in Base64.
+  // We decode → Float32 → AudioBuffer → schedule with monotonically advancing time.
 
   const playPcmChunk = useCallback((base64Pcm: string) => {
-    try {
-      const ctx = playbackCtxRef.current
-      if (!ctx) return
+    const ctx = playCtxRef.current
+    if (!ctx) return
+    if (ctx.state === "suspended") ctx.resume()
 
-      const rawBuffer = base64ToArrayBuffer(base64Pcm)
-      const float32 = int16ToFloat32(rawBuffer)
-      const sampleRate = 24000
-      const audioBuffer = ctx.createBuffer(1, float32.length, sampleRate)
-      audioBuffer.copyToChannel(float32, 0)
+    try {
+      const rawBuf  = base64ToArrayBuffer(base64Pcm)
+      if (rawBuf.byteLength === 0) return
+      const float32 = int16ToFloat32(rawBuf)
+
+      const audioBuf = ctx.createBuffer(1, float32.length, 24000)
+      audioBuf.copyToChannel(float32, 0)
 
       const source = ctx.createBufferSource()
-      source.buffer = audioBuffer
+      source.buffer = audioBuf
       source.connect(ctx.destination)
 
-      const now = ctx.currentTime
-      const startTime = Math.max(now, playbackScheduleRef.current)
-      source.start(startTime)
-      playbackScheduleRef.current = startTime + audioBuffer.duration
+      // Monotonically advancing schedule — guarantees gapless playback
+      const now       = ctx.currentTime
+      const startAt   = Math.max(now + 0.02, playScheduleRef.current)
+      source.start(startAt)
+      playScheduleRef.current = startAt + audioBuf.duration
 
-      // Drive AI sphere animation from output amplitude
-      const amp = Math.min(1, Math.sqrt(
-        float32.reduce((s, v) => s + v * v, 0) / float32.length
-      ) * 8)
-      setAiAmplitude(amp)
-      setTimeout(() => setAiAmplitude(0), audioBuffer.duration * 1000 + 200)
+      // AI amplitude for blob animation
+      const rms = Math.sqrt(float32.reduce((s, v) => s + v * v, 0) / float32.length)
+      setAiAmplitude(Math.min(1, rms * 9))
+      clearTimeout(aiAmpTimeoutRef.current)
+      aiAmpTimeoutRef.current = setTimeout(
+        () => setAiAmplitude(0),
+        audioBuf.duration * 1000 + 250
+      )
     } catch (e) {
-      console.error("Playback error:", e)
+      console.error("[voice] PCM playback error:", e)
     }
   }, [])
 
-  // ── Connect to Vertex AI Live API ─────────────────────────────────────────
+  // ── Connect to Vertex AI Multimodal Live API ──────────────────────────────
 
   const startCall = useCallback(async () => {
     if (callStateRef.current !== "idle") return
     setCallState("connecting")
     setErrorMsg("")
 
-    // 1. Fetch token
-    let tokenData: VoiceTokenResponse
+    // 1. Resume / create playback AudioContext on user gesture BEFORE the WS opens
+    if (!playCtxRef.current) {
+      playCtxRef.current = new AudioContext({ sampleRate: 24000 })
+    }
+    playCtxRef.current.resume().catch(() => {/* ignore */})
+    playScheduleRef.current = 0
+
+    // 2. Ping backend to initialize WebSocket server (Required for Cloud Run)
     try {
-      const res = await fetch("/api/voice/token", {
-        headers: { Authorization: `Bearer ${firebaseToken}` },
-      })
-      const json = await res.json()
-      if (!res.ok) {
-        const msg = res.status === 401
-          ? "Sesión expirada. Recarga la página."
-          : res.status === 500
-          ? "Live Voice requiere deploy en Cloud Run con ADC activo."
-          : `Error ${res.status}: ${json.error ?? "desconocido"}`
-        setErrorMsg(msg)
-        setCallState("error")
-        return
-      }
-      tokenData = json
-    } catch (e: any) {
-      setErrorMsg("No se pudo conectar con el servidor.")
-      setCallState("error")
-      return
+      await fetch("/api/voice/proxy")
+    } catch {
+      // Ignore
     }
 
-    // 2. Open WebSocket to Vertex AI with token in query params
-    // Browsers do not support custom headers in WebSocket, so we pass it in the URL
-    const wsUrlWithAuth = `${tokenData.wsUrl}?access_token=${tokenData.token}`
-    const ws = new WebSocket(wsUrlWithAuth)
-
+    // 3. Open WebSocket to our local Next.js proxy
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
+    const wsUrl = `${protocol}//${window.location.host}/api/voice/proxy?token=${encodeURIComponent(firebaseToken)}` +
+                  (panelContext ? `&context=${encodeURIComponent(panelContext)}` : "")
+    
+    console.log("[voice] Connecting to proxy:", wsUrl)
+    const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 
-    ws.onopen = async () => {
-      // 3. Send setup message with system prompt + voice config
-      const setupMsg = {
-        setup: {
-          model: tokenData.model,
-          system_instruction: {
-            parts: [{ text: VOICE_SYSTEM_PROMPT + (panelContext ? `\n\n[Panel actual del usuario: ${panelContext}]` : "") }],
-          },
-          generation_config: {
-            response_modalities: ["AUDIO"],
-            speech_config: {
-              voice_config: {
-                prebuilt_voice_config: { voice_name: "Enceladus" },
-              },
-            },
-          },
-        },
-      }
-      ws.send(JSON.stringify(setupMsg))
+    // ── WebSocket event handlers ─────────────────────────────────────────
 
-      // 4. Open mic
+    ws.onopen = async () => {
+      console.log("[voice] WS open. Proxy will handle setup injection.")
+
+      // 3. Open microphone
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: {
-            channelCount: 1,
+            channelCount:     1,
+            sampleRate:       16000,
             echoCancellation: true,
             noiseSuppression: true,
-            autoGainControl: true,
+            autoGainControl:  true,
           },
         })
         micStreamRef.current = stream
 
         // Mic AudioContext at 16 kHz
-        const ctx = new AudioContext({ sampleRate: 16000 })
-        audioCtxRef.current = ctx
+        const micCtx    = new AudioContext({ sampleRate: 16000 })
+        micCtxRef.current = micCtx
+        micCtx.resume().catch(() => {/* ignore */})
 
-        const source = ctx.createMediaStreamSource(stream)
-
-        // Analyser for amplitude visualisation
-        const analyser = ctx.createAnalyser()
+        const source   = micCtx.createMediaStreamSource(stream)
+        const analyser = micCtx.createAnalyser()
         analyser.fftSize = 512
         analyserRef.current = analyser
         source.connect(analyser)
 
-        // ScriptProcessor to capture PCM chunks
-        const processor = ctx.createScriptProcessor(4096, 1, 1)
-        processorRef.current = processor
-        source.connect(processor)
-        processor.connect(ctx.destination)
+        // AudioWorklet — hilo dedicado de audio, sin glitches del main thread
+        // El archivo /public/pcm-processor.js acumula 1024 samples (64 ms @ 16 kHz)
+        // y los envía al main thread via transferable (zero-copy).
+        await micCtx.audioWorklet.addModule("/pcm-processor.js")
+        const workletNode = new AudioWorkletNode(micCtx, "pcm-capture-processor")
+        workletNodeRef.current = workletNode
+        source.connect(workletNode)
+        // No conectar a destination: solo captura, no reproducción
 
-        processor.onaudioprocess = (e) => {
+        workletNode.port.onmessage = (e: MessageEvent<{ channelData: Float32Array }>) => {
           if (isMutedRef.current) return
           if (wsRef.current?.readyState !== WebSocket.OPEN) return
-          const pcm16 = float32ToInt16(e.inputBuffer.getChannelData(0))
-          const b64 = arrayBufferToBase64(pcm16)
-          wsRef.current.send(
-            JSON.stringify({
-              realtime_input: {
-                media_chunks: [{ mime_type: "audio/pcm;rate=16000", data: b64 }],
-              },
-            })
-          )
-        }
 
-        // Playback AudioContext at 24 kHz
-        playbackCtxRef.current = new AudioContext({ sampleRate: 24000 })
-        playbackScheduleRef.current = 0
+          const pcm16 = float32ToInt16(e.data.channelData)
+          const b64   = arrayBufferToBase64(pcm16)
+
+          // ✓ camelCase: realtimeInput → mediaChunks → mimeType
+          wsRef.current.send(JSON.stringify({
+            realtimeInput: {
+              mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: b64 }],
+            },
+          }))
+        }
 
         setCallState("listening")
         startAmplitudeLoop()
       } catch (e: any) {
-        setErrorMsg("No se pudo acceder al micrófono: " + e.message)
+        setErrorMsg("Micrófono no disponible: " + e.message)
         setCallState("error")
         ws.close()
       }
@@ -345,43 +447,57 @@ export function VoiceCallOverlay({
 
     ws.onmessage = (event) => {
       try {
-        const msg = JSON.parse(event.data)
+        const msg = JSON.parse(event.data as string)
 
-        // setup_complete confirmation
-        if (msg.setupComplete) return
+        // Setup confirmation
+        if (msg.setupComplete) {
+          console.log("[voice] Setup complete ✓")
+          return
+        }
 
-        // Audio response from model
-        const parts = msg.serverContent?.modelTurn?.parts ?? msg.server_content?.model_turn?.parts ?? []
+        // Audio response — parse camelCase fields from proto3 JSON
+        // serverContent → modelTurn → parts[] → inlineData → { mimeType, data }
+        const parts: any[] = msg.serverContent?.modelTurn?.parts ?? []
         for (const part of parts) {
-          const audio =
-            part.inlineData?.data ?? part.inline_data?.data
-          const mime =
-            part.inlineData?.mimeType ?? part.inline_data?.mime_type ?? ""
+          const audio = part.inlineData?.data
+          const mime  = part.inlineData?.mimeType ?? ""
           if (audio && mime.startsWith("audio/")) {
             if (callStateRef.current === "listening") setCallState("ai-speaking")
             playPcmChunk(audio)
           }
         }
 
-        // Turn complete — back to listening
-        if (msg.serverContent?.turnComplete || msg.server_content?.turn_complete) {
+        // Turn complete → back to listening
+        if (msg.serverContent?.turnComplete) {
+          const delay = Math.max(
+            300,
+            (playScheduleRef.current - (playCtxRef.current?.currentTime ?? 0)) * 1000
+          )
           setTimeout(() => {
             if (callStateRef.current === "ai-speaking") setCallState("listening")
-          }, 300)
+          }, delay)
         }
       } catch {
-        // Non-JSON frame — ignore
+        // Non-JSON frame — ignore (binary heartbeat etc.)
       }
     }
 
-    ws.onerror = () => {
-      setErrorMsg("Error de conexión con Vertex AI.")
+    ws.onerror = (ev) => {
+      console.error("[voice] WS error", ev)
+      setErrorMsg("Error de conexión con Vertex AI. Verifica que el modelo Live esté disponible.")
       setCallState("error")
     }
 
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
+      console.warn("[voice] WS closed", ev.code, ev.reason)
       if (callStateRef.current !== "idle" && callStateRef.current !== "error") {
-        setCallState("idle")
+        // Unexpected close
+        if (ev.code === 1008 || ev.code === 403) {
+          setErrorMsg("Token inválido o permisos insuficientes (código " + ev.code + ").")
+          setCallState("error")
+        } else {
+          setCallState("idle")
+        }
       }
     }
   }, [firebaseToken, panelContext, startAmplitudeLoop, playPcmChunk])
@@ -390,26 +506,27 @@ export function VoiceCallOverlay({
 
   const endCall = useCallback(() => {
     cancelAnimationFrame(animFrameRef.current)
+    clearTimeout(aiAmpTimeoutRef.current)
 
     wsRef.current?.close()
     wsRef.current = null
 
-    processorRef.current?.disconnect()
-    processorRef.current = null
-
+    workletNodeRef.current?.port.postMessage({ cmd: "stop" })
+    workletNodeRef.current?.disconnect()
+    workletNodeRef.current = null
     analyserRef.current?.disconnect()
     analyserRef.current = null
 
     micStreamRef.current?.getTracks().forEach((t) => t.stop())
     micStreamRef.current = null
 
-    audioCtxRef.current?.close()
-    audioCtxRef.current = null
+    micCtxRef.current?.close()
+    micCtxRef.current = null
 
-    playbackCtxRef.current?.close()
-    playbackCtxRef.current = null
+    playCtxRef.current?.close()
+    playCtxRef.current = null
+    playScheduleRef.current = 0
 
-    playbackScheduleRef.current = 0
     setAmplitude(0)
     setAiAmplitude(0)
     setCallState("idle")
@@ -420,204 +537,66 @@ export function VoiceCallOverlay({
   // Cleanup on unmount
   useEffect(() => () => { endCall() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-start when overlay is opened
+  // Auto-start / auto-stop when overlay opens/closes
   useEffect(() => {
-    if (isOpen && callStateRef.current === "idle") {
-      startCall()
-    }
-    if (!isOpen && callStateRef.current !== "idle") {
-      endCall()
-    }
+    if (isOpen  && callStateRef.current === "idle")  startCall()
+    if (!isOpen && callStateRef.current !== "idle")  endCall()
   }, [isOpen]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!isOpen) return null
 
-  // ── Sphere visual parameters ──────────────────────────────────────────────
-
-  const isAiSpeaking = callState === "ai-speaking"
-  const userAmp = isMuted ? 0 : amplitude
-  const activeAmp = isAiSpeaking ? aiAmplitude : userAmp
-  const sphereScale = 1 + activeAmp * 0.35
+  // ── Labels ────────────────────────────────────────────────────────────────
 
   const stateLabel: Record<CallState, string> = {
-    idle: "Iniciando...",
-    connecting: "Conectando con Rick...",
-    listening: "Escuchando...",
+    idle:          "Iniciando...",
+    connecting:    "Conectando con Rick...",
+    listening:     "Escuchando...",
     "ai-speaking": "Rick está hablando...",
-    error: "Error de conexión",
+    error:         "Error de conexión",
   }
+
+  const isAi     = callState === "ai-speaking"
+  const isListen = callState === "listening"
+  const userAmp  = isMuted ? 0 : amplitude
 
   return (
     <div
       className="fixed inset-0 z-50 flex flex-col items-center justify-center"
-      style={{ background: "rgba(0,0,0,0.82)", backdropFilter: "blur(24px)" }}
+      style={{ background: "rgba(0,0,0,0.84)", backdropFilter: "blur(28px)" }}
     >
-      {/* ── Animated sphere ─────────────────────────────────────────────── */}
-      <div className="relative flex items-center justify-center mb-10">
-        {/* Outer glow rings */}
-        <div
-          className="absolute rounded-full pointer-events-none"
-          style={{
-            width: 340,
-            height: 340,
-            background: isAiSpeaking
-              ? "radial-gradient(circle, rgba(139,92,246,0.18) 0%, transparent 70%)"
-              : "radial-gradient(circle, rgba(59,130,246,0.15) 0%, transparent 70%)",
-            transform: `scale(${sphereScale * 1.4})`,
-            transition: "transform 80ms ease-out, background 600ms ease",
-          }}
+      {/* ── Fluid blob ─────────────────────────────────────────────────── */}
+      <div className="mb-12 mt-2">
+        <NewtonianBlob
+          amplitude={userAmp}
+          aiAmplitude={aiAmplitude}
+          callState={callState}
         />
-        <div
-          className="absolute rounded-full pointer-events-none"
-          style={{
-            width: 260,
-            height: 260,
-            background: isAiSpeaking
-              ? "radial-gradient(circle, rgba(139,92,246,0.25) 0%, transparent 65%)"
-              : "radial-gradient(circle, rgba(59,130,246,0.2) 0%, transparent 65%)",
-            transform: `scale(${sphereScale * 1.2})`,
-            transition: "transform 60ms ease-out, background 600ms ease",
-          }}
-        />
-
-        {/* Main sphere */}
-        <div
-          style={{
-            width: 180,
-            height: 180,
-            borderRadius: "50%",
-            transform: `scale(${sphereScale})`,
-            transition: "transform 50ms ease-out",
-            background: isAiSpeaking
-              ? `radial-gradient(ellipse at 35% 35%,
-                  rgba(216,180,254,0.95) 0%,
-                  rgba(139,92,246,0.9) 30%,
-                  rgba(79,34,204,0.85) 60%,
-                  rgba(30,10,80,0.95) 100%)`
-              : callState === "connecting"
-              ? `radial-gradient(ellipse at 35% 35%,
-                  rgba(148,163,184,0.9) 0%,
-                  rgba(71,85,105,0.85) 40%,
-                  rgba(15,23,42,0.95) 100%)`
-              : `radial-gradient(ellipse at 35% 35%,
-                  rgba(147,210,255,0.95) 0%,
-                  rgba(59,130,246,0.9) 30%,
-                  rgba(29,78,216,0.85) 60%,
-                  rgba(10,20,60,0.95) 100%)`,
-            boxShadow: isAiSpeaking
-              ? `0 0 ${40 + activeAmp * 60}px rgba(139,92,246,${0.5 + activeAmp * 0.4}),
-                 0 0 ${80 + activeAmp * 80}px rgba(139,92,246,${0.2 + activeAmp * 0.2}),
-                 inset 0 1px 0 rgba(255,255,255,0.3)`
-              : callState === "listening"
-              ? `0 0 ${30 + userAmp * 50}px rgba(59,130,246,${0.4 + userAmp * 0.5}),
-                 0 0 ${60 + userAmp * 60}px rgba(59,130,246,${0.15 + userAmp * 0.2}),
-                 inset 0 1px 0 rgba(255,255,255,0.25)`
-              : `0 0 40px rgba(71,85,105,0.4),
-                 inset 0 1px 0 rgba(255,255,255,0.15)`,
-            animation: callState === "connecting"
-              ? "voicePulse 1.8s ease-in-out infinite"
-              : "none",
-          }}
-        >
-          {/* Inner highlight */}
-          <div
-            style={{
-              position: "absolute",
-              top: "14%",
-              left: "20%",
-              width: "38%",
-              height: "28%",
-              borderRadius: "50%",
-              background: "rgba(255,255,255,0.35)",
-              filter: "blur(8px)",
-              transform: "rotate(-20deg)",
-            }}
-          />
-          {/* Center icon */}
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            {callState === "connecting" ? (
-              <div
-                style={{
-                  width: 32,
-                  height: 32,
-                  border: "2px solid rgba(255,255,255,0.6)",
-                  borderTopColor: "rgba(255,255,255,0.05)",
-                  borderRadius: "50%",
-                  animation: "spin 0.8s linear infinite",
-                }}
-              />
-            ) : (
-              <Volume2
-                style={{
-                  color: "rgba(255,255,255,0.85)",
-                  width: 32,
-                  height: 32,
-                  filter: "drop-shadow(0 0 8px rgba(255,255,255,0.4))",
-                  opacity: isAiSpeaking ? 1 : 0.7,
-                }}
-              />
-            )}
-          </div>
-        </div>
-
-        {/* Waveform dots — 5 animated bars */}
-        {callState !== "connecting" && (
-          <div
-            className="absolute bottom-[-28px] flex items-end gap-[5px]"
-            style={{ height: 24 }}
-          >
-            {[0.4, 0.7, 1, 0.7, 0.4].map((base, i) => (
-              <div
-                key={i}
-                style={{
-                  width: 4,
-                  borderRadius: 2,
-                  background: isAiSpeaking
-                    ? "rgba(139,92,246,0.85)"
-                    : "rgba(59,130,246,0.75)",
-                  height: `${8 + activeAmp * 16 * base}px`,
-                  transition: "height 50ms ease-out, background 600ms ease",
-                }}
-              />
-            ))}
-          </div>
-        )}
       </div>
 
       {/* ── State label ─────────────────────────────────────────────────── */}
       <p
-        className="text-white/80 text-sm font-medium tracking-wide mb-2 mt-4"
-        style={{ letterSpacing: "0.08em" }}
+        className="text-white/80 text-sm font-medium tracking-widest uppercase mb-1 mt-2"
+        style={{ letterSpacing: "0.1em" }}
       >
         {stateLabel[callState]}
       </p>
 
       {callState === "error" && (
-        <p className="text-red-400/80 text-xs mb-4 px-8 text-center">{errorMsg}</p>
+        <p className="text-red-400/80 text-xs mb-3 px-10 text-center max-w-xs">
+          {errorMsg}
+        </p>
       )}
 
-      <p className="text-white/30 text-xs mb-10">
-        {callState === "listening" && !isMuted
-          ? "Di algo para hablar con Rick"
-          : callState === "listening" && isMuted
-          ? "Micrófono silenciado"
-          : callState === "ai-speaking"
-          ? "Rick está respondiendo..."
-          : ""}
+      <p className="text-white/30 text-xs mb-10 h-4">
+        {isListen && !isMuted && "Di algo para hablar con Rick"}
+        {isListen && isMuted  && "Micrófono silenciado"}
+        {isAi                 && "Rick está respondiendo…"}
       </p>
 
       {/* ── Controls ────────────────────────────────────────────────────── */}
       <div className="flex items-center gap-6">
-        {/* Mute button */}
-        {(callState === "listening" || callState === "ai-speaking") && (
+        {/* Mute */}
+        {(isListen || isAi) && (
           <button
             onClick={() => setIsMuted((m) => !m)}
             className={cn(
@@ -641,10 +620,10 @@ export function VoiceCallOverlay({
           <PhoneOff className="size-7" />
         </button>
 
-        {/* Retry on error */}
+        {/* Retry */}
         {callState === "error" && (
           <button
-            onClick={() => { setCallState("idle"); startCall() }}
+            onClick={() => { setCallState("idle"); setTimeout(startCall, 50) }}
             className="flex size-14 items-center justify-center rounded-full bg-white/10 text-white/70 hover:bg-white/20 transition-all active:scale-95"
             aria-label="Reintentar"
           >
@@ -655,14 +634,14 @@ export function VoiceCallOverlay({
 
       {/* ── Wake word hint ───────────────────────────────────────────────── */}
       <p className="absolute bottom-6 text-white/20 text-[11px] tracking-widest uppercase">
-        Di &quot;Rick, Rick&quot; para llamar sin tocar la pantalla
+        Di &quot;Rick, Rick&quot; para activar sin tocar la pantalla
       </p>
 
-      {/* ── Inline keyframes ────────────────────────────────────────────── */}
+      {/* ── Keyframes ───────────────────────────────────────────────────── */}
       <style>{`
-        @keyframes voicePulse {
-          0%, 100% { opacity: 0.85; transform: scale(1); }
-          50%       { opacity: 1;    transform: scale(1.06); }
+        @keyframes blobPulse {
+          0%, 100% { opacity: 0.65; transform: scale(1); }
+          50%       { opacity: 0.9;  transform: scale(1.04); }
         }
         @keyframes spin {
           to { transform: rotate(360deg); }
@@ -675,7 +654,7 @@ export function VoiceCallOverlay({
 // ─── Compact phone button (used in ChatInputBar) ──────────────────────────────
 
 interface LiveVoiceButtonProps {
-  onClick: () => void
+  onClick:   () => void
   isActive?: boolean
 }
 

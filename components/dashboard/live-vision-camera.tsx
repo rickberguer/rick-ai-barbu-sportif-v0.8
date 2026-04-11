@@ -222,9 +222,9 @@ export default function LiveVisionCamera({ cameraName, className, externalDetect
     // LOOP DE DIBUJO — rAF 60fps con lerp de posición
     // =====================================================
     const LERP_SPEED   = 0.20;
-    const FADE_DELAY   = 6500;
-    const FADE_TOTAL   = 1500;
-    const APPEAR_TIME  = 300;
+    const FADE_DELAY   = 2000;
+    const FADE_TOTAL   = 300;
+    const APPEAR_TIME  = 150;
 
     let animationId: number;
 

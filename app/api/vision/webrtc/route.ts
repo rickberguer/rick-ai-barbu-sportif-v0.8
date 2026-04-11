@@ -28,8 +28,12 @@ export async function POST(req: NextRequest) {
 
   const sdpOffer = await req.text();
   const isMirabel = camera.startsWith('mirabel');
+  const isFrancois = camera.startsWith('francois');
+  
   const go2rtcHost = isMirabel
     ? 'https://vision-mirabel.barbusportif.ca'
+    : isFrancois
+    ? 'https://vision-francois.barbusportif.ca'
     : 'https://vision.barbusportif.ca';
   const targetUrl = `${go2rtcHost}/api/webrtc?src=${camera}`;
 

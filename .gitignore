@@ -13,3 +13,7 @@ External files/
 .vscode/
 .gitignore
 .dockerignore
+test_
+test.pem
+.gcloudignore
+Skills/
