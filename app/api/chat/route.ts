@@ -249,8 +249,13 @@ Eres Rick, el Director Operativo Virtual (vCOO) de la cadena Barbu Sportif. Tu m
 4. VENTAS: Clasifica con \`WHERE is_product = true\` para productos y \`false\` para servicios.
 
 [DATASETS Y TABLAS]
-1. MINDBODY (\`mindbody_analytics\`): \`sales_history\`, \`appointment_history\`, \`payroll_history\`, \`client_catalog\`, \`vision_analytics\`.
-2. INVENTARIO (\`inventory_system\`): 
+1. MINDBODY (\`mindbody_analytics\`): 
+   - \`sales_history\`: (sale_datetime, branch_name, is_product, amount, client_id, item_name).
+   - \`appointment_history\`: (date_time, branch_name, status, client_id, service_name).
+   - \`payroll_history\`, \`client_catalog\`.
+2. VISION (\`barbusportif_analytics\`): \`vision_logs\` (timestamp, camera_id, image_storage_url, barberos_activos, clientes_atendidos, clientes_esperando, limpieza_piso, anomalias).
+   - IMPORTANTE: Usa \`camera_id\` para filtrar por sucursal (ej: 'mirabel1', 'mirabel2', 'ndp', 'ndp2', 'francois1'). Usa \`LIKE 'mirabel%'\` para ver todas las cámaras de una sucursal. La tabla antigua \`mindbody_analytics.vision_analytics\` está DEPRECADA.
+3. INVENTARIO (\`inventory_system\`): 
    - \`daily_stock\`: (inventory_date, store, product_name, quantity, unit_price, total_line_value).
    - Lógica: Para ver el stock real, usa \`ROW_NUMBER() OVER (PARTITION BY store, product_name ORDER BY inventory_date DESC)\` y filtra \`WHERE rn = 1\`.
 3. MARKETING: \`Google_ads.CampaignBasicStats_1029563228\`, \`facebook_ads_analytics.campaign_daily_stats\`, \`tiktok_ads_analytics.campaign_daily_stats\`.
@@ -480,7 +485,7 @@ Eres Rick, el Director Operativo Virtual (vCOO) de la cadena Barbu Sportif. Tu m
             description: "Ejecuta SQL nativo en BigQuery. Para datos históricos. ¡REGLA DE ORO!: Las fechas de MINDBODY están en UTC y requieren DATE(DATETIME(nombre_columna, 'America/Toronto')). Las tablas de MARKETING (Google/Meta Ads) son DATE puro, ¡NO USES DATETIME() en ellas!. Consolida métricas en UNA SOLA consulta (subconsultas o JOIN). NUNCA uses 'SELECT *'.",
             parameters: {
               type: "OBJECT",
-              properties: { query: { type: "STRING", description: "Consulta SQL SELECT válida. Tablas: mindbody_analytics.sales_history, mindbody_analytics.appointment_history, mindbody_analytics.vision_analytics (historial visión), etc." } },
+              properties: { query: { type: "STRING", description: "Consulta SQL SELECT válida. Tablas: mindbody_analytics.sales_history, mindbody_analytics.appointment_history, barbusportif_analytics.vision_logs (historial visión), inventory_system.daily_stock, etc." } },
               required: ["query"],
             },
           },

@@ -24,8 +24,7 @@ export async function queryBigQuery(sqlQuery: string) {
 
     const options = {
       query: sqlQuery,
-      // Se fuerza la ubicación a northamerica-northeast1 ya que el dataset de Mindbody está allí
-      location: 'northamerica-northeast1', 
+      // No forzamos ubicación para permitir consultas multi-región o auto-detección
     };
 
     const [job] = await bigquery.createQueryJob(options);
@@ -38,16 +37,4 @@ export async function queryBigQuery(sqlQuery: string) {
   }
 }
 
-export async function insertVisionLog(rows: any[]) {
-  const datasetId = 'mindbody_analytics';
-  const tableId = 'vision_analytics';
-  try {
-    const dataset = bigquery.dataset(datasetId);
-    const table = dataset.table(tableId);
-    await table.insert(rows);
-    console.log(`[Vision Log] Inserted ${rows.length} rows into ${datasetId}.${tableId}`);
-  } catch (error: any) {
-    console.error("[Vision Log] Error in insertVisionLog:", error.message);
-    throw error;
-  }
-}
+
